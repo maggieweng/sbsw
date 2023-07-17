@@ -10,3 +10,369 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 This contains code used for analysis of metatranscriptomes from the South Bay Salt Works to understand how gene expression changes across a day-night cycle. 
+
+##correcting for a batch effect from two different rounds of RNA extractions
+
+#install and load packages
+```{r}
+BiocManager::install("limma")
+library(limma)
+library(tidyverse)
+```
+
+#Load data
+```{r}
+
+mt_tally <-read_csv("mt_data_v2/mt_tally_v2.csv") #non-normalized transcript counts
+metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
+normalized_counts <- read_csv("mt_data_v2/normalized_mt_tally_v2_genes.csv")
+
+#create matrix from mt_tally and call this mt_raw
+mt_raw <- mt_tally[,c(1, 5:40)]
+mt_raw <- as.data.frame(mt_raw)
+rownames(mt_raw) <-mt_raw$position
+mt_raw[,"position"] <- NULL
+
+```
+
+Batch correction steps:
+
+1. Determine the scope of the batch effect using full vs reduced model in deseq2
+2. Use LIMMA to remove batch effect from variance stabilized counts 
+3. Rerun PCA plot and test statistical significance of remaining batch effects, if any
+4. If LIMMA is successfully able to remove batch effects from variance stabilized data, we can assume that deseq2 is able to model these effects internally when batch is included in the reduced model. 
+
+#Visualizing the batch effect on variance-stabilized data
+PCA test to visualize batch effects on the data in DESeq:
+```{r}
+
+dds <- DESeqDataSetFromMatrix(countData=mt_raw,
+                              colData=metadata_norm_v2,
+                              design=~extraction_batch + timecount_norm) #load deseq2 dataset 
+
+
+dds <- estimateSizeFactors( dds ) #normalizing data by gene length and rna counts
+
+sizeFactors(dds)
+
+vsd <-vst(dds, blind=FALSE) #variance stabilizing transformation that is not blind to design. Design is used to calculate variability but not remove it 
+
+plotPCA(vsd, intgroup=c("time24", "extraction_batch")) + scale_color_brewer(palette="Paired") #visualize the PCA plot of data before batch effects are removed-- batch accounts for ~22% of the variation and is a significant variable
+
+```
+
+Using limma to remove batch effects from the variance stabilized count matrix:
+
+```{r}
+mat <- assay(vsd)
+mm <- model.matrix(~timecount_norm, colData(vsd))
+mat <- limma::removeBatchEffect(mat, batch=vsd$extraction_batch, design=mm)
+assay(vsd) <- mat
+plotPCA(vsd, intgroup=c("time24", "extraction_batch")) + scale_color_brewer(palette="Paired")
+
+#this limma-corrected matrix can be used for downstream applications independent of deseq2 such as pca, statistical testing, etc. it should NOT be used as the input for deseq2 as it is not raw count data! deseq2 will remove batch effects internally if they are included in the design 
+
+
+write.csv(mat, "limma_corrected_counts.csv")
+```
+
+This limma-corrected matrix can be used for downstream applications independent of deseq2 such as pca, statistical testing, etc. it should NOT be used as the input for deseq2 as it is not raw count data! deseq2 will account for batch effects internally if they are included in the design. 
+
+Anova to test whether batch is still significant:
+```{r}
+#create distance matrix
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+
+#using adonis
+adonis(sampleDistMatrix ~ timecount_norm + extraction_batch, data=metadata_norm_v2, permutations=999)
+```
+
+The batch effects are no longer statistically significant!
+
+Limma has shown that we can correct for batch effects. Now DESeq2 will remove them internally if they are included in the design. We do NOT use the limma data for DESeq2, just the raw count matrix. Limma is just to prove that batch correction can be done successfully 
+
+##Running DESeq2 differential expression analysis while correcting for batch effect in the LRT model
+
+```{r}
+
+#load data
+mt_tally <-read_csv("mt_data_v2/mt_tally_v2.csv")
+metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
+normalized_counts <- read_csv("mt_data_v2/normalized_mt_tally_v2_genes.csv")
+
+#get a list of all bins
+bins <-unique(mt_tally$bin)
+
+#set position as the rownames and keep bins as a column to loop through bin by bin
+mt_tally_bins <-mt_tally[,-c(3:4)]
+mt_tally_bins <- as.data.frame(mt_tally_bins)
+row.names(mt_tally_bins) <-mt_tally_bins$position
+mt_tally_bins[,"position"]<-NULL
+
+#list to hold all differentially expressed genes by bin
+comparisons_master <- list() 
+genomes_mt <-c()
+g<-0
+
+
+#loop test
+for(i in bins) {
+  g <- g+1
+  mt_bin <- mt_tally_bins %>% filter(bin == i)
+
+mt_matrix <- mt_bin[,-1]
+mt_matrix <- as.data.frame(mt_matrix)
+
+dds <- DESeqDataSetFromMatrix(countData=mt_matrix,
+                              colData=metadata_norm_v2,
+                              design=~extraction_batch + timecount_norm)
+dds_lrt_time <- DESeq(dds, test="LRT", reduced = ~extraction_batch)
+res_lrt <- results(dds_lrt_time)
+
+res_data <-matrix(nrow=length(res_lrt@listData[["log2FoldChange"]]), ncol=0, data=0)
+res_data <-data.frame(res_data)
+
+res_data$log2FoldChange <- res_lrt@listData[["log2FoldChange"]]
+res_data$baseMean <- res_lrt@listData[["baseMean"]]
+res_data$padj <-res_lrt@listData[["padj"]]
+res_data$gene <-res_lrt@rownames
+res_data$genome <- i
+
+
+comparisons_master <- c(list(res_data), comparisons_master) ## or append(x, list(df), 0)
+
+#rename list item with name of genome
+
+genomes_mt <-append(genomes_mt, i)
+}
+
+comparisons_master_df <-plyr::ldply(comparisons_master, rbind) %>% rename(., "gene"="position")
+master <-comparisons_master_df %>% left_join(.,
+                                             normalized_counts[,c(37:40)],
+                                             by="position") %>%select(-"genome")
+
+
+write_csv(master, "master_diffex_genes_blocked.csv")
+gtdbtk_tax <-read_csv("mt_data_v2/gtdbtk_results/gtdbtk_full.csv")
+
+master_tax <-left_join(master, gtdbtk_tax[,c(1:8)], by="bin")
+write.csv(master_tax, "master_genes_taxonomy_gtdbtk_blocked.csv")
+
+diffex_tax <-master_tax %>% filter(padj < 0.05)
+write.csv(diffex_tax, "diffex_tax_blocked.csv")
+```
+
+#batch-corrected DESeq2 analysis
+
+Load packages and data:
+```{r}
+
+#theme and colors
+plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
+
+install.packages("wesanderson")
+library(wesanderson)
+
+#combining wes anderson color palettes into master palettes
+
+darjeeling10 <-c(wes_palette("Darjeeling1"),wes_palette("Darjeeling2"))
+
+#data
+master_tax <-read_csv("blocked/master_genes_taxonomy_gtdbtk_blocked.csv")
+diffex_tax <-read_csv("blocked/diffex_tax_blocked.csv")
+metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
+normalized_counts <- read_csv("mt_data_v2/normalized_mt_tally_v2_genes.csv")
+corrected_counts <-read_csv("blocked/limma_corrected_counts.csv")
+
+```
+
+#Taxonomic summary of full dataset and DE genes
+
+```{r}
+#number of bins used in dataset
+length(unique(master_tax$bin)) #91 bins
+#number of bins with DE genes
+length(unique(diffex_tax$bin)) #74 bins
+
+#taxonomic summary of all bins in the dataset
+genes_per_taxa <-master_tax %>%group_by(phylum) %>% summarize(count=n()) %>%arrange(count) %>% mutate(percent_reads=100*(count/sum(count)))
+
+write_csv(genes_per_taxa, "phylum_all_genes.csv")
+
+#taxonomic summary of significantly differentially expressed genes
+
+diffex_genes <- diffex_tax %>% group_by(family) %>% summarize(count=n()) %>%arrange(count) %>% mutate(percent_reads=100*(count/sum(count)))
+
+write_csv(diffex_genes, "phylum_diffex_genes.csv")
+
+```
+
+#Figure 2: bubbleplot showing peak expression of select genes
+-The size of the bubble represents the mean expression of all the genes with that annotation that peak in expression at that time
+-These values are also log-normalized, since we are using the limma-corrected data, so they do not represent actual transcript abundances. 
+
+Selecting genes to be included in the plot based on data exploration and literature review:
+```{r}
+#selecting all the genes
+#sod
+sod <-diffex_tax %>% filter(., product== "superoxide dismutase")
+sod$gene <- "superoxide dismutase"
+
+#suf
+suf <- diffex_tax[str_detect(diffex_tax$product, "Suf"),] 
+suf$gene <-ifelse(suf$product=="Fe-S cluster assembly protein SufB", "Fe-S cluster assembly protein SufB", "Fe-S cluster assembly protein SufD")
+
+#chorophyll
+chlorophyll <- diffex_tax[str_detect(diffex_tax$product, "chloro"),] 
+chlorophyll <- chlorophyll %>% mutate(gene=case_when(
+  startsWith(product, "chlorophyllide") ~ "chlorophyllide a reductase",
+  startsWith(product, "ferredoxin:protochlorophyllide") ~ "ferredoxin:protochlorophyllide reductase (ATP-dependent)", 
+  product=="2-vinyl bacteriochlorophyllide hydratase" ~ "2-vinyl bacteriochlorophyllide hydratase"
+))
+
+#anoxygenic photosynthesis
+photo <- diffex_tax[str_detect(diffex_tax$product, "photosynthetic reaction center"),]
+photo$gene <-photo$product
+
+#oxygenic photosynthesis
+photosystem <- diffex_tax[str_detect(diffex_tax$product, "photosystem"),]
+photosystem$gene <-photosystem$product
+
+#glycerol kinase
+glycerol <- diffex_tax[str_detect(diffex_tax$product, "glycerol kinase"),] 
+glycerol$gene <-"glycerol kinase"
+
+#glycerol dehydrogenase
+dehydro <-diffex_tax[str_detect(diffex_tax$product, "glycerol-3-phosphate dehydrogenase"), ]
+#make gene names wrappable
+dehydro <- dehydro %>% mutate(gene=case_when(
+  startsWith(product, "anaerobic") ~ "anaerobic glycerol-3-phosphate dehydrogenase",
+  startsWith(product, "glycerol-3-phosphate") ~ "glycerol-3-phosphate dehydrogenase"))
+
+#phosphate
+phosphate <- diffex_tax %>% filter(product=="phosphate uptake regulator PhoU" | product== "phosphate signaling complex protein PhoU" | product== "phosphate ABC transporter permease PstA"| product=="phosphate ABC transporter ATP-binding protein PstB" | product=="phosphate ABC transporter permease subunit PstC" | product=="PstS family phosphate ABC transporter substrate-binding protein")
+phosphate <- phosphate %>% mutate(gene=case_when(
+  startsWith(product, "phosphate ABC transporter") ~ "phosphate ABC transporter PstSCAB",
+  startsWith(product, "phosphate uptake regulator") ~ "phosphate uptake regulator complex PhoU", 
+  startsWith(product, "phosphate signaling complex") ~ "phosphate uptake regulator complex PhoU",
+  startsWith(product, "PstS family")~"phosphate ABC transporter PstSCAB"))
+
+#bacteriorhodopsins
+rhodopsin <-diffex_tax %>% filter(product=="bacteriorhodopsin")
+rhodopsin$gene <-"bacteriorhodopsin"
+
+#tca cycle
+iso <-diffex_tax[str_detect(diffex_tax$product, "isocitrate dehydrogenase"),]
+iso$gene <-"isocitrate dehydrogenase"
+aco <-diffex_tax[str_detect(diffex_tax$product, "aconitate hydratase"),]
+aco$gene <-"aconitate hydratase"
+tca <-rbind(iso, aco)
+rm(iso,aco)
+
+#cytochrome c oxidase
+cytochrome <- diffex_tax[str_detect(diffex_tax$product,"cytochrome c oxidase"),]
+cytochrome <- cytochrome %>% mutate(gene=case_when(
+  startsWith(product, "cbb3-type cytochrome") ~ "cbb3-type cytochrome c oxidase",
+  startsWith(product, "cytochrome c oxidase") ~ "cytochrome c oxidase"))
+
+#pyruvate metabolism
+pyruvate <- diffex_tax %>% filter(., product %in% c("phosphoenolpyruvate synthase", "pyruvate kinase", "phosphoenolpyruvate carboxylase", "pyruvate dehydrogenase (acetyl-transferring) E1 component subunit alpha", "2-isopropylmalate synthase"))
+pyruvate$gene <-pyruvate$product
+
+#isocitrate lyase
+isocitrate <- diffex_tax %>% filter(., product=="isocitrate lyase")
+isocitrate$gene <-isocitrate$product
+
+#glutamate synthase 
+glutamate <- diffex_tax %>% filter(., product=="glutamate synthase large subunit")
+glutamate$gene <-"glutamate synthase"
+
+#RBIND ALL THESE BAD BOYS
+gene_bubble_master <-rbind(sod, suf, chlorophyll, photo, photosystem, glycerol, dehydro, phosphate, rhodopsin, tca, cytochrome, pyruvate, isocitrate, glutamate)
+
+```
+
+
+peak expression plot:
+```{r}
+#peak expression for each individual ORF (multiple individuals have the same annotation)
+gene_peak <- genecounts %>% group_by(position) %>% slice_max(expression_mean) %>% ungroup() 
+
+#now take the weighted average of the mean expression at each time point for each annotation, thus getting a weighted average mean expression for the time point
+
+mean_gene_peak <-gene_peak %>% group_by (time24,gene) %>%mutate(ngenes=length(time24)) %>% summarize(weighted_mean=weighted.mean(expression_mean,ngenes))
+
+gene_peak_plot <-left_join(mean_gene_peak, category, by="gene")
+
+
+ggplot(gene_peak_plot, aes(x=time24, y=gene, color=Category, size=weighted_mean)) +
+  geom_point() +
+      theme(axis.text.x = element_text(angle=70, hjust=1)) +
+  scale_color_manual(values=darjeeling10) +
+  plot_theme
+
+  
+```
+
+
+#Figure 3: line plot showing expression of photosynthesis-related genes
+
+Anoxygenic photosynthesis:
+```{r}
+
+photo <- diffex_tax[str_detect(diffex_tax$product, "photosynthetic reaction center"),] 
+
+photocorrect <-corrected_counts %>% filter(position %in% photo$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(., photo[,c(4:7)], by="position")
+
+ggplot(photocorrect, aes(x=time24, y=expression_mean, group=position)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, color=product), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  scale_color_manual(values=c("#172A3A", "#1D4E89", "#0899BA", "#3FC1C0")) +
+  plot_theme
+
+```
+
+Oxygenic photosynthesis:
+
+```{r}
+
+photosystem <- diffex_tax[str_detect(diffex_tax$product, "photosystem"),] 
+
+photocolors <-c("#F97300", "#F99C00", "#90A955", "#4F772D", "#132A13") 
+  
+cyanocorrect <-corrected_counts %>% filter(position %in% photosystem$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(., photosystem[,c(4:8)], by="position")
+
+ggplot(cyanocorrect, aes(x=time24, y=expression_mean, group=position)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, color=product), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  scale_color_manual(values=photocolors) +
+  plot_theme
+```
+
+Chlorophyll production:
+
+```{r}
+chlorophyll <- diffex_tax[str_detect(diffex_tax$product, "chloro"),] 
+
+chlorocorrected <-corrected_counts %>% filter(position %in% chlorophyll$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(., chlorophyll[,c(4:7)], by="position")
+
+#cleaning up gene names so they color-code properly
+chlorocorrected <- chlorocorrected %>% mutate(gene=case_when(
+  startsWith(product, "chlorophyllide") ~ "chlorophyllide a reductase",
+  startsWith(product, "ferredoxin:protochlorophyllide") ~ "ferredoxin:protochlorophyllide reductase (ATP-dependent)", 
+  product=="2-vinyl bacteriochlorophyllide hydratase" ~ "2-vinyl bacteriochlorophyllide hydratase"
+))
+
+#line plot with error bars
+ggplot(chlorocorrected, aes(x=time24, y=expression_mean, group=position)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, color=gene), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=gene)) +
+  geom_point(aes(color=gene)) +
+  plot_theme +
+  scale_color_manual(values=c("#660033", "#994D74", "#CC9AB5"))
+```
+
+
