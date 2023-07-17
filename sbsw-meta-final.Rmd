@@ -375,4 +375,4 @@ ggplot(chlorocorrected, aes(x=time24, y=expression_mean, group=position)) +
   scale_color_manual(values=c("#660033", "#994D74", "#CC9AB5"))
 ```
 
-
+These three plots were joined as one panel figure via Affinity Designer. 

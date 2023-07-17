@@ -1,0 +1,500 @@
+---
+title: "sruber-analysis"
+author: "maggie weng"
+date: "7/17/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This notebook details the analysis of the Salinibacter ruber transcriptome experiment to understand S. ruber's gene expression across light/dark cycles. 
+
+#Processing Salinibacter ruber transcriptome data
+To do this, we aligned reads to the coding sequences of the strain reference genome. 
+
+```{bash, eval=F}
+#index the cds file
+bwa index cds_from_genomic.fna
+
+
+##align reads to cds with bwa
+
+#!/bin/bash
+#SBATCH --job-name=sruber_alignment_cds
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=24:00:00 #48 hrs is the max
+#SBATCH --mem=300G # a value of 0 here will allocate all available memory
+#SBATCH --partition bigmem-1TB
+
+#load environment
+module load miniconda3
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+while read -r line; do
+
+bwa mem -t 24 /users/mweng/xena-scratch/sbsw_ruber/ncbi_dataset/data/GCF_000013045.1/cds_from_genomic.fna ${line}_R1_001.qc.fastq.gz ${line}_R2_001.qc.fastq.gz > cds_alignment/${line}.sam
+
+gzip cds_alignment/${line}.sam
+
+done<sruber_filepath.txt
+
+```
+
+When s. ruber reads were aligned to CDS, only 15% of the data aligned! This is really low, so for a sanity check I am aligning the CDS to the full assembly. 
+
+```{bash, eval=F}
+bwa mem -t 4 /users/mweng/xena-scratch/sbsw_ruber/full_assembly/GCF_000013045.1_ASM1304v1_genomic.fna.gz /users/mweng/xena-scratch/sbsw_ruber/ncbi_dataset/data/GCF_000013045.1/cds_from_genomic.fna  > cds_to_assembly.sam
+
+#100% of reads (2981 genes) mapped according to samtools flagstat!
+```
+
+Mapping to s. ruber rRNA genes (5S, 23S, 16S) to determine the ribosomal coverage of samples
+
+To do this, I curated a list of S. ruber rRNA genes from both the cds file and from searching for those genes on BLAST (I think those genes came from a different strain on BLAST so may be slightly different)
+```{bash, eval=F}
+#test one sample with bbmap
+
+bbmap.sh in=220802_1900_RNA_A_S51_L002_R1_001.qc.fasta.gz out=mapped_rna.sam ref=sruber_rRNAgenes.fa
+
+#use samtools flagstat to get coverage stats
+
+#write quick loop to do this for all samples
+#this will list all files in a directory, then cut off the file extension and pipe to a new text file!
+
+ls *.qc.fastq.gz | cut -f 1 -d "." > all_fastq_files.txt
+
+
+#first turn fastq to fasta
+
+#!/bin/bash
+#SBATCH --job-name=seqmagick
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=12:00:00 #48 hrs is the max
+#SBATCH --mem=32G # a value of 0 here will allocate all available memory
+#SBATCH --partition singleGPU
+
+#load environment
+module load miniconda3
+module load python
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+#convert files
+while read -r line; do 
+seqmagick convert ${line}.qc.fastq.gz ${line}.qc.fasta.gz
+done<all_fastq_files.txt
+
+#FIN#
+
+```
+
+Map reads from all samples to ribosomal genes:
+```{bash, eval=F}
+#!/bin/bash
+#SBATCH --job-name=bbmap
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=12:00:00 #48 hrs is the max
+#SBATCH --mem=300G # a value of 0 here will allocate all available memory
+#SBATCH --partition bigmem-1TB
+
+#load environment
+module load miniconda3
+module load python
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+#map to ribosomal genes
+while read -r line; do
+bbmap.sh in1=${line}_R1_001.qc.fasta.gz in2=${line}_R2_001.qc.fasta.gz out=${line}_mapped_rna.sam ref=sruber_rRNAgenes.fa
+done<filenames.txt
+
+#then determined how much mapped with samtools flagstat
+```
+So, it looks like the majority of reads map to ribosomal genes -- this is not surprising, but just means the ribodepletion we ran before sequencing did not work!
+Onward to analysis...
+
+#Differential analysis with DESeq2
+
+Generate normalized count matrix:
+```{r}
+#load packages and plot stuff
+library(tidyverse)
+library(DESeq2)
+library(wesanderson)
+library(WGCNA)
+
+plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
+darjeeling10 <-c(wes_palette("Darjeeling1"),wes_palette("Darjeeling2"))
+
+#load data
+counts <-read_csv("sruber_cds_alignment/allprotcounts.csv") 
+annotation <-read_csv("sruber_cds_alignment/GCF_000013045.1_ASM1304v1.annotation.csv") 
+full <- left_join(annotation, counts, by="gene_id")
+metadata <-read_csv("sruber_cds_alignment/sruber_metadata.csv")
+
+#time to run deseq2!
+deseq_counts <-as.data.frame(counts)
+row.names(deseq_counts)<-deseq_counts$gene_id
+deseq_counts$gene_id <-NULL
+deseq_counts[is.na(deseq_counts)] <-0
+
+dds <-DESeqDataSetFromMatrix(countData=deseq_counts,
+                             colData=metadata,
+                             design=~time + light)
+
+
+#exploratory analysis to look at differences between samples
+#variance stabilizing transformation of count data
+vsd <-vst(dds, blind=FALSE)
+plotPCA(vsd, intgroup=c("time", "light")) + scale_color_manual(values=darjeeling10)
+#results look similar to what Cyprien got, a good sign!
+
+
+#get the normalized count data for later analysis and save
+dds <-estimateSizeFactors(dds)
+normalized_counts <-counts(dds, normalized=TRUE)
+normalized_counts <-as.data.frame(normalized_counts)
+normalized_counts$gene_id <-rownames(normalized_counts)
+save(normalized_counts, file="sruber_normalized_counts.Rdata")
+```
+
+Run two analyses, one for light condition (controlling for time) and one for time (controlling for light condition):
+
+```{r}
+
+#light condition
+dds_light <- DESeq(dds, full=~time + light, test="LRT", reduced=~time)
+res_light <- results(dds_light)
+head(res_light)
+light_df <-data.frame(res_light@listData)
+light_df$gene_id <-res_light@rownames
+light_df <-left_join(light_df, annotation, by="gene_id")
+save(light_df, file="sruber_light_deseq.Rdata")
+
+
+#sampling time
+dds_time <-DESeq(dds, full=~time + light, test="LRT", reduced=~light)
+res_time <- results(dds_time)
+head(res_time)
+time_df <-data.frame(res_time@listData)
+time_df$gene_id <-res_time@rownames
+time_df <-left_join(time_df, annotation, by="gene_id")
+save(time_df, file="sruber_time_deseq.Rdata")
+```
+
+
+#look at significantly differentially expressed genes and create volcano plots
+
+```{r}
+siglight <-light_df %>% filter(padj<=0.05)
+sigtime <-time_df %>% filter(padj<=0.05)
+
+#volcano plots
+
+#light
+light_df$diffex <- "padj > 0.05"
+light_df$diffex[light_df$padj < 0.05] <- "padj < 0.05"
+light_df$diffex[light_df$padj < 0.01] <- "padj < 0.01"
+ggplot(light_df, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) +
+  plot_theme
+
+
+#time
+time_df$diffex <- "padj > 0.05"
+time_df$diffex[time_df$padj < 0.05] <- "padj < 0.05"
+time_df$diffex[time_df$padj < 0.01] <- "padj < 0.01"
+ggplot(time_df, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) +
+  plot_theme
+```
+Very few genes were differentially expressed with regard to time alone (circadian entrainment). Many genes were differentially expressed with regard to light condition. 
+
+
+#WGCNA
+Running Weighted Gene Correlation Network Analysis (WGCNA) to look for modules of genes with similar expression profiles and understand what functions may be upregulated under light or dark conditions
+
+```{r}
+library(WGCNA)
+
+#format the data properly
+wgcna_counts <-t(normalized_counts)
+wgcna_counts <-as.data.frame(wgcna_counts)
+colnames(wgcna_counts) <-normalized_counts$gene_id
+wgcna_counts <- wgcna_counts[-17,]
+wgcna_counts <- wgcna_counts %>% mutate_all(as.numeric)
+
+#format metadata so samples are rownames
+wgcna_metadata <-as.data.frame(metadata)
+rownames(wgcna_metadata) <-wgcna_metadata$sample
+wgcna_metadata$sample <-NULL
+wgcna_metadata <- wgcna_metadata[,-c(1:4)]
+```
+
+Run WGCNA!
+
+```{r}
+#test for genes/samples missing too many values
+gsg <-goodSamplesGenes(wgcna_counts, verbose=3)
+gsg$allOK
+
+#next cluster the samples to see if any samples are outliers
+sampleTree = hclust(dist(wgcna_counts), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+sizeGrWindow(12,9)
+#pdf(file = "Plots/sampleClustering.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5,
+cex.axis = 1.5, cex.main = 2)
+#no outliers!
+#set variables for network correlation analysis
+nGenes = ncol(wgcna_counts)
+nSamples = nrow(wgcna_counts) #use this for network correlation analysis
+
+#visualize how metadata relates to samples in this bin--this part is confusing
+sampleTree2=hclust(dist(wgcna_counts), method="average")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(as.numeric(metadata$date_time), signed = FALSE);
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors,
+groupLabels = names(wgcna_metadata),
+main = "Sample dendrogram and trait heatmap")
+```
+
+#one-step module detection
+
+```{r}
+# Choose a set of soft-thresholding powers
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+# Call the network topology analysis function
+sft = pickSoftThreshold(wgcna_counts, powerVector = powers)
+# Plot the results:
+sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+labels=powers,cex=cex1,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.80,col="red")
+#pick power=6 for roughly 0.8 fit!
+
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+```
+
+```{r}
+#one step module detection
+
+net = blockwiseModules(wgcna_counts, power = 6,
+TOMType = "signed", networkType="signed", minModuleSize = 30,
+reassignThreshold = 0, mergeCutHeight = 0.25,
+numericLabels = TRUE, pamRespectsDendro = FALSE,
+saveTOMs = TRUE,
+saveTOMFileBase = "sruber_TOM",
+verbose = 3)
+
+#how many modules were detected?
+#0 is always reserved for genes outside of all modules
+table(net$colors)
+
+# open a graphics window
+sizeGrWindow(12, 9)
+# Convert labels to colors for plotting
+mergedColors = labels2colors(net$colors)
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[1]], mergedColors[net$blockGenes[[1]]],
+"Module colors",
+dendroLabels = FALSE, hang = 0.03,
+addGuide = TRUE, guideHang = 0.05)
+
+#save the data for future analysis
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]];
+save(MEs, moduleLabels, moduleColors, geneTree,
+file = "sruber_onestep_modules.RData")
+
+```
+
+
+connecting modules to metadata
+```{r}
+
+# Define numbers of genes and samples
+nGenes = ncol(wgcna_counts);
+nSamples = nrow(wgcna_counts);
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(wgcna_counts, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, wgcna_metadata, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+
+#make plot 
+sizeGrWindow(10,6)
+# Will display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+xLabels = names(wgcna_metadata),
+yLabels = names(MEs),
+ySymbols = names(MEs),
+colorLabels = FALSE,
+colors = blueWhiteRed(50),
+textMatrix = textMatrix,
+setStdMargins = FALSE,
+cex.text = 0.5,
+zlim = c(-1,1),
+main = paste("Module-trait relationships"))
+
+```
+Connecting genes to their module membership and making dataframe of MEs
+
+```{r}
+
+#calculate module membership and significance for light 
+#looking at the correlation of genes in a module with a variable of interest
+# Define variable of interest from the metadata 
+light <- as.data.frame(wgcna_metadata$light_num);
+names(light) = "light"
+# names (colors) of the modules
+modNames = substring(names(MEs), 3)
+#gene significance (GS)=the absolute value of correlation between gene and trait of interest. Module membership (MM) is the correlation of the module eigengene and the gene expression profile to quantify the similarity of all genes to each module 
+
+geneModuleMembership = as.data.frame(cor(wgcna_counts, MEs, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples));
+names(geneModuleMembership) = paste("MM", modNames, sep="");
+names(MMPvalue) = paste("p.MM", modNames, sep="");
+
+geneModuleMembership$gene_id <-rownames(geneModuleMembership)
+
+geneTraitSignificance = as.data.frame(cor(wgcna_counts, light, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+names(geneTraitSignificance) = paste("GS.", names(light), sep="");
+names(GSPvalue) = paste("p.GS.", names(light), sep="");
+
+#Visualizing gene significance within a module of interest
+
+module = "turquoise"
+column = match(module, modNames);
+moduleGenes = moduleColors==module;
+sizeGrWindow(7, 7);
+par(mfrow = c(1,1));
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+abs(geneTraitSignificance[moduleGenes, 1]),
+xlab = paste("Module Membership in", module, "module"),
+ylab = "Gene significance for light",
+main = paste("Module membership vs. gene significance\n"),
+cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module)
+
+
+# Create the starting data frame
+ 
+genes <-names(wgcna_counts)
+
+geneInfo <- data.frame(gene_id = genes,
+moduleColor = moduleColors,
+geneTraitSignificance,
+GSPvalue)
+
+write.csv(geneInfo, file = "sruber_genes_to_modules.csv") #this contains genes, their module color, and gene significance for light
+
+
+modOrder = order(-abs(cor(MEs, light, use = "p")));
+# Add module membership information in the chosen order
+for (mod in 1:ncol(geneModuleMembership))
+{
+oldNames = names(geneInfo)
+geneInfo = data.frame(geneInfo, geneModuleMembership[, modOrder[mod]],
+MMPvalue[, modOrder[mod]]);
+names(geneInfo) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+# Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+geneOrder = order(geneInfo$moduleColor, -abs(geneInfo$GS.light));
+fullgenes = geneInfo[geneOrder, ]
+
+save(fullgenes, file="sruber_module_membership.Rdata") #genes and their module membership for all of the modules
+
+#recalculate MEs
+MEs=moduleEigengenes(wgcna_counts, moduleColors)$eigengenes
+
+#save as csv
+write.csv(MEs, "sruber_module_eigengenes.csv")
+```
+
+#exporting the turquoise module to cytoscape
+
+The turquoise module contains superoxide dismutase, a key gene of interest, so we will examine the relationships between genes in this module further using the visualization tool cytoscape. 
+
+```{r}
+#Recaulcuate topological overlap
+
+TOM = TOMsimilarityFromExpr(wgcna_counts, power = 6);
+#make sure gene annotation file is loaded as "annotation"
+
+# Select modules
+module = "turquoise"
+# Select module probes
+probes = names(wgcna_counts)
+inModule = (moduleColors==module);
+modProbes = probes[inModule];
+modGenes = annotation$product[match(modProbes, annotation$gene_id)];
+
+# Select the corresponding Topological Overlap
+modTOM = TOM[inModule, inModule];
+dimnames(modTOM) = list(modProbes, modProbes)
+# Export the network into edge and node list files Cytoscape can read
+cyt = exportNetworkToCytoscape(modTOM,
+edgeFile = paste("CytoscapeInput-edges-", paste(module, collapse="-"), ".txt", sep=""),
+nodeFile = paste("CytoscapeInput-nodes-", paste(module, collapse="-"), ".txt", sep=""),
+weighted = TRUE,
+threshold = 0.02,
+nodeNames = modProbes,
+altNodeNames = modGenes,
+nodeAttr = moduleColors[inModule]);
+
+save(cyt, file="cytoscape_list_files.Rdata")
+```
+
+Adding more information to the node file in cytoscape:
+
+```{r}
+nodes <-as.data.frame((cyt[["nodeData"]]))
+
+nodesPlus <-rename(nodes, gene_id = nodeName) %>% left_join(., light_df[,c(1,2,6,7)], by="gene_id") %>% left_join(., turquoise, by="gene_id") %>% rename(., nodeName=gene_id)
+
+write_tsv(nodesPlus, "cytoscape_nodes_moreinfo.txt")
+```
+
+
