@@ -1,0 +1,12 @@
+---
+title: "sbsw-meta-final"
+author: "maggie weng"
+date: "7/17/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This contains code used for analysis of metatranscriptomes from the South Bay Salt Works to understand how gene expression changes across a day-night cycle. 
