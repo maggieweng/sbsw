@@ -11,6 +11,85 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This contains code used for analysis of metatranscriptomes from the South Bay Salt Works to understand how gene expression changes across a day-night cycle. 
 
+#Mapping reads to MAGs and obtaining transcript tallies
+
+```{bash, eval=F}
+
+#!/bin/bash
+while read -r line; do
+
+bwa mem -t 45 /home/m1weng/sbsw/mt_analysis_v2/export/210924_bins.fasta ${line}_R1_001.qc.fastq.gz ${line}_R2_001.qc.fastq.gz > ${line}.sam
+
+gzip ${line}.sam
+
+python3 parse_sam.py ${line}
+
+done<mt_filenames.txt
+```
+
+#Importing the results from bwa mapping into R for downstream analysis with DEseq2
+
+aggregate individual csvs into one large data file and reformat:
+```{r}
+library(tidyverse)
+
+samplenames <-scan(file="mt_data_v2/mt_tally_v2/mt_filenames.txt", what=character())
+
+data <-list.files(path="mt_data_v2/mt_tally_v2", pattern="*_tally.csv", full.names=TRUE) %>% 
+  lapply(read_csv) %>% mapply(cbind, ., "SampleID"=samplenames, SIMPLIFY=F)
+
+
+mt_tally <- bind_rows(data, .id= NULL) %>% pivot_wider(.,
+                       names_from=SampleID,
+                       values_from=n_hits) %>%rename("position"="...1")
+
+
+#Get rid of NAs in the counts only, not genes!
+
+mt_tally[,c(5:40)][is.na(mt_tally[,c(5:40)])] <- 0
+
+saveRDS(mt_tally, file="mt_tally_v2.rds")
+write_csv(mt_tally, "mt_tally_v2.csv")
+
+
+```
+
+#Circadian normalization of time points
+our time is linear in this file (assumes 6am is the farthest point from 10am, which is untrue)--we must circularize using trigonomic predictors
+The cosinor model: Yt=ccos(wt)+ssin(wt) where t=1,...n
+
+```{r}
+
+#full trig version we heart this 
+#V2.0 time normalization
+
+#Import a metadata file that has the sample conditions (created in Excel)
+
+metadata <- read.csv("sample_conditions.csv", header=TRUE)
+
+
+#Append a column to the metadata file with normalized time infomration
+
+timecount_norm <-c()
+
+for(i in metadata$timecount_noon_centered){
+  time.norm <- (2 * pi * i)/24
+  time.norm.trig <-cos(time.norm) + sin(time.norm)
+  timecount_norm <- append(timecount_norm, time.norm.trig)
+}
+
+metadata_norm_v2 <- cbind(metadata, timecount_norm)
+
+ggplot(metadata_norm_v2, aes(x=time24, y=timecount_norm)) + geom_point()
+
+write.csv(metadata_norm_v2, "metadata_norm_v2.csv")
+
+
+metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
+
+```
+
+
 ##correcting for a batch effect from two different rounds of RNA extractions
 
 #install and load packages
@@ -179,11 +258,11 @@ library(wesanderson)
 darjeeling10 <-c(wes_palette("Darjeeling1"),wes_palette("Darjeeling2"))
 
 #data
-master_tax <-read_csv("blocked/master_genes_taxonomy_gtdbtk_blocked.csv")
-diffex_tax <-read_csv("blocked/diffex_tax_blocked.csv")
+master_tax <-read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/blocked/master_genes_taxonomy_gtdbtk_blocked.csv")
+diffex_tax <-read_csv("diffex_tax_blocked.csv")
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
-normalized_counts <- read_csv("mt_data_v2/normalized_mt_tally_v2_genes.csv")
-corrected_counts <-read_csv("blocked/limma_corrected_counts.csv")
+normalized_counts <- read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/mt_data_v2/normalized_mt_tally_v2_genes.csv")
+corrected_counts <-read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/blocked/limma_corrected_counts.csv")
 
 ```
 
@@ -376,3 +455,32 @@ ggplot(chlorocorrected, aes(x=time24, y=expression_mean, group=position)) +
 ```
 
 These three plots were joined as one panel figure via Affinity Designer. 
+
+#Supplemental figure: superoxide dismutase expression in SBSW
+
+```{r}
+sod <-diffex_tax %>% filter(., product== "superoxide dismutase") 
+sodcorrected <-corrected_counts %>% filter(position %in% sod$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(., sod, by="position")
+
+#line plot with error bars
+ggplot(sodcorrected, aes(x=time24, y=expression_mean, group=position, color=phylum)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=phylum)) +
+  geom_point(aes(color=phylum)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+#quantile plot?
+
+ggplot(sodcorrected, aes(x=time24, y=expression_mean, group=time24)) + geom_boxplot() 
+
+#volcano plot?
+
+ggplot(sod, aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
+
+#relative expression
+
+
+
+```
+
