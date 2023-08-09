@@ -102,9 +102,9 @@ library(tidyverse)
 #Load data
 ```{r}
 
-mt_tally <-read_csv("mt_data_v2/mt_tally_v2.csv") #non-normalized transcript counts
+mt_tally <-read_csv("../mt_data_v2/mt_tally_v2.csv") #non-normalized transcript counts
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
-normalized_counts <- read_csv("mt_data_v2/normalized_mt_tally_v2_genes.csv")
+normalized_counts <- read_csv("../mt_data_v2/normalized_mt_tally_v2_genes.csv")
 
 #create matrix from mt_tally and call this mt_raw
 mt_raw <- mt_tally[,c(1, 5:40)]
