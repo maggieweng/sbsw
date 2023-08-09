@@ -468,7 +468,7 @@ ggplot(sodcorrected, aes(x=time24, y=expression_mean, group=position, color=phyl
   geom_line(aes(color=phylum)) +
   geom_point(aes(color=phylum)) +
   plot_theme +
-  scale_color_manual(values=darjeeling10)
+  scale_color_manual(values=wes_palette("FantasticFox1"))
 
 #quantile plot?
 
