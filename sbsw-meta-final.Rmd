@@ -262,7 +262,7 @@ master_tax <-read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/bloc
 diffex_tax <-read_csv("diffex_tax_blocked.csv")
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
 normalized_counts <- read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/mt_data_v2/normalized_mt_tally_v2_genes.csv")
-corrected_counts <-read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/blocked/limma_corrected_counts.csv")
+corrected_counts <-read_csv("../blocked/limma_corrected_counts.csv")
 
 ```
 
@@ -405,7 +405,7 @@ photo <- diffex_tax[str_detect(diffex_tax$product, "photosynthetic reaction cent
 photocorrect <-corrected_counts %>% filter(position %in% photo$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(., photo[,c(4:7)], by="position")
 
 ggplot(photocorrect, aes(x=time24, y=expression_mean, group=position)) +
-  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, color=product), width=0.01, position=position_dodge(0.1)) +
+  geom_ribbon(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, fill="grey")) +
   geom_line(aes(color=product)) +
   geom_point(aes(color=product)) +
   scale_color_manual(values=c("#172A3A", "#1D4E89", "#0899BA", "#3FC1C0")) +
