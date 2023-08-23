@@ -424,7 +424,7 @@ photocolors <-c("#F97300", "#F99C00", "#90A955", "#4F772D", "#132A13")
 cyanocorrect <-corrected_counts %>% filter(position %in% photosystem$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(., photosystem[,c(4:8)], by="position")
 
 ggplot(cyanocorrect, aes(x=time24, y=expression_mean, group=position)) +
-  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, color=product), width=0.01, position=position_dodge(0.1)) +
+  geom_ribbon(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, fill="grey"))  +
   geom_line(aes(color=product)) +
   geom_point(aes(color=product)) +
   scale_color_manual(values=photocolors) +
@@ -447,7 +447,7 @@ chlorocorrected <- chlorocorrected %>% mutate(gene=case_when(
 
 #line plot with error bars
 ggplot(chlorocorrected, aes(x=time24, y=expression_mean, group=position)) +
-  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, color=gene), width=0.01, position=position_dodge(0.1)) +
+   geom_ribbon(aes(ymin=expression_mean-sd, ymax=expression_mean+sd, fill="grey"))  +
   geom_line(aes(color=gene)) +
   geom_point(aes(color=gene)) +
   plot_theme +
