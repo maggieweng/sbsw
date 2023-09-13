@@ -1,0 +1,34 @@
+﻿gene,Category,plot
+2-vinyl bacteriochlorophyllide hydratase,aerobic anoxygenic photosynthesis,a
+chlorophyllide a reductase,aerobic anoxygenic photosynthesis,b
+ferredoxin:protochlorophyllide reductase (ATP-dependent),aerobic anoxygenic photosynthesis,c
+photosynthetic reaction center cytochrome c subunit family protein,aerobic anoxygenic photosynthesis,d
+photosynthetic reaction center subunit H,aerobic anoxygenic photosynthesis,e
+photosynthetic reaction center subunit L,aerobic anoxygenic photosynthesis,f
+photosynthetic reaction center subunit M,aerobic anoxygenic photosynthesis,g
+glycerol kinase,carbon metabolism,h
+anaerobic glycerol-3-phosphate dehydrogenase,carbon metabolism,i
+glycerol-3-phosphate dehydrogenase,carbon metabolism,j
+aconitate hydratase,carbon metabolism,k
+isocitrate dehydrogenase,carbon metabolism,l
+phosphoenolpyruvate synthase,carbon metabolism,m
+pyruvate dehydrogenase (acetyl-transferring) E1 component subunit alpha,carbon metabolism,n
+pyruvate kinase,carbon metabolism,o
+2-isopropylmalate synthase,carbon metabolism,p
+phosphoenolpyruvate carboxylase,carbon metabolism,q
+isocitrate lyase,carbon metabolism,r
+Fe-S cluster assembly protein SufB,cellular maintenance ,s
+Fe-S cluster assembly protein SufD,cellular maintenance ,t
+superoxide dismutase,cellular maintenance ,u
+phosphate ABC transporter PstSCAB,nutrient assimilation,v
+phosphate uptake regulator complex PhoU,nutrient assimilation,w
+glutamate synthase ,nutrient assimilation,x
+photosystem I core protein PsaA,oxygenic photosynthesis,y
+photosystem I core protein PsaB,oxygenic photosynthesis,z
+photosystem II D2 protein (photosystem q(a) protein),oxygenic photosynthesis,za
+photosystem II q(b) protein,oxygenic photosynthesis,zb
+photosystem II reaction center protein CP43,oxygenic photosynthesis,zc
+bacteriorhodopsin,photoheterotrophy,zd
+cytochrome c oxidase,respiration,ze
+cbb3-type cytochrome c oxidase,respiration,zf
+pha biosynthesis,test,zg

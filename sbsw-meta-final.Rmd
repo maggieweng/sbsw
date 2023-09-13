@@ -367,14 +367,22 @@ isocitrate$gene <-isocitrate$product
 glutamate <- diffex_tax %>% filter(., product=="glutamate synthase large subunit")
 glutamate$gene <-"glutamate synthase"
 
+#PHA biosynthesis
+pha <- diffex_tax %>% filter(., gene=="phaC")
+
 #RBIND ALL THESE BAD BOYS
-gene_bubble_master <-rbind(sod, suf, chlorophyll, photo, photosystem, glycerol, dehydro, phosphate, rhodopsin, tca, cytochrome, pyruvate, isocitrate, glutamate)
+gene_bubble_master <-rbind(sod, suf, chlorophyll, photo, photosystem, glycerol, dehydro, phosphate, rhodopsin, tca, cytochrome, pyruvate, isocitrate, glutamate, pha)
+save(gene_bubble_master, file="gene_bubble_masterlist.Rdata")
 
 ```
 
 
 peak expression plot:
 ```{r}
+#gene counts for each of the selected genes
+
+genecounts <-corrected_counts %>% filter(position %in% gene_bubble_master$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarize(expression_mean=mean(value), sd=sd(value)) %>% left_join(., gene_bubble_master[,c(2:14)], by="position")
+
 #peak expression for each individual ORF (multiple individuals have the same annotation)
 gene_peak <- genecounts %>% group_by(position) %>% slice_max(expression_mean) %>% ungroup() 
 
@@ -382,6 +390,7 @@ gene_peak <- genecounts %>% group_by(position) %>% slice_max(expression_mean) %>
 
 mean_gene_peak <-gene_peak %>% group_by (time24,gene) %>%mutate(ngenes=length(time24)) %>% summarize(weighted_mean=weighted.mean(expression_mean,ngenes))
 
+category <-read_csv("gene_categories_bubbleplot.csv")
 gene_peak_plot <-left_join(mean_gene_peak, category, by="gene")
 
 
