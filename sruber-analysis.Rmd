@@ -207,6 +207,9 @@ save(time_df, file="sruber_time_deseq.Rdata")
 siglight <-light_df %>% filter(padj<=0.05)
 sigtime <-time_df %>% filter(padj<=0.05)
 
+write_csv(siglight, "sruber_light_genes.csv")
+
+
 #volcano plots
 
 #light
@@ -430,6 +433,7 @@ GSPvalue)
 write.csv(geneInfo, file = "sruber_genes_to_modules.csv") #this contains genes, their module color, and gene significance for light
 
 
+
 modOrder = order(-abs(cor(MEs, light, use = "p")));
 # Add module membership information in the chosen order
 for (mod in 1:ncol(geneModuleMembership))
@@ -452,6 +456,17 @@ MEs=moduleEigengenes(wgcna_counts, moduleColors)$eigengenes
 #save as csv
 write.csv(MEs, "sruber_module_eigengenes.csv")
 ```
+
+For a fuller look at gene modules, we should join gene names to information about those genes and their differential expression in light/dark conditions
+```{r}
+modules <-read_csv("sruber_genes_to_modules.csv")
+
+modules_full <-left_join(modules, light_df[,c(1,2,6:10)], by="gene_id")
+write_csv(modules_full, "sruber_modules_withfoldchange.csv")
+
+```
+
+
 
 #exporting the turquoise module to cytoscape
 
@@ -496,5 +511,12 @@ nodesPlus <-rename(nodes, gene_id = nodeName) %>% left_join(., light_df[,c(1,2,6
 
 write_tsv(nodesPlus, "cytoscape_nodes_moreinfo.txt")
 ```
+
+Conditions for building cytoscape visualization:
+
+-turquoise module membership: ?
+-p-value for light diff expression < 0.05
+-interaction includes superoxide dismutase
+-interaction strength (weight) ?
 
 
