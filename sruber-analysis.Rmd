@@ -514,9 +514,9 @@ write_tsv(nodesPlus, "cytoscape_nodes_moreinfo.txt")
 
 Conditions for building cytoscape visualization:
 
--turquoise module membership: ?
+-turquoise module membership: > 0.8
 -p-value for light diff expression < 0.05
 -interaction includes superoxide dismutase
--interaction strength (weight) ?
+-interaction strength (weight) >0.28
 
 
