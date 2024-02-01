@@ -1,0 +1,84 @@
+---
+title: "SBSW_MT_revisions"
+author: "maggie weng"
+date: "2/1/2024"
+output: html_document
+---
+
+##Running DESeq2 differential expression analysis while correcting for batch effect in the LRT model
+https://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-matrix-input
+
+```{r}
+#load packages
+library(tidyverse)
+library(DESeq2)
+
+#load data
+mt_tally <-read_csv("../mt_data_v2/mt_tally_v2.csv") #raw data from bwa
+metadata_norm_v2 <-read_csv("metadata_norm_v2.csv") #metadata
+
+#running deseq2, NOT binwise
+#row names of metadata MUST equal column names of count matrix
+rownames(metadata_norm_v2) <-metadata_norm_v2$sample
+
+#first, save link btwn position and bin
+bin_to_gene <-mt_tally[,c(1:4)]
+#next, turn count data into matrix with positions as rownames
+mt_tally_num <-mt_tally[,-c(2:4)]
+mt_tally_num <-as.data.frame(mt_tally_num)
+row.names(mt_tally_num) <-mt_tally_num$position
+mt_tally_num$position <-NULL
+
+dds <- DESeqDataSetFromMatrix(countData=mt_tally_num,
+                              colData=metadata_norm_v2,
+                              design=~extraction_batch + timecount_norm)
+dds_lrt_time <- DESeq(dds, test="LRT", reduced = ~extraction_batch)
+res_lrt <- results(dds_lrt_time)
+
+save(dds_lrt_time, file="DESeq_non_binwise.Rdata")
+
+#adjusting results for p-value cutoff of 0.05
+res05 <- results(dds_lrt_time, alpha=0.05)
+summary(res05)
+sum(res05$padj < 0.05, na.rm=TRUE)
+#test MA plot
+plotMA(res05, alpha=0.05, ylim=c(-2,2))
+
+
+#LFC shrinking?
+#"Shrinkage of effect size (LFC estimates) is useful for visualization and ranking of genes"
+#Below we specify to use the apeglm method for effect size shrinkage (Zhu, Ibrahim, and Love 2018)
+
+resultsNames(dds_lrt_time) #we are interested in "timecount_norm" as the variable of interest
+resLFC <- lfcShrink(dds_lrt_time, coef="timecount_norm", type="apeglm")
+
+#saving results table as data table for further analysis 
+res05_df <-as.data.frame(res05)
+res05_df$position <-rownames(res05_df)
+res05_df <-res05_df %>% left_join(., bin_to_gene, by="position")
+save(res05_df, file="results_df.Rdata")
+
+res05_df %>% filter(padj<0.05) %>% filter(product=="superoxide dismutase") #14 genes
+
+
+```
+
+#volcano plot
+
+```{r}
+
+res05_df$padj[is.na(res05_df$padj)] <-1 #for genes that had no pvalue, turned it into 1 so the significance would be 0 so they would appear on the plot
+res05_df$significance <- "padj > 0.05"
+res05_df$significance[res05_df$padj < 0.05] <- "padj < 0.05"
+res05_df$significance[res05_df$padj < 0.01] <- "padj < 0.01"
+
+
+#this may be too big to make one big volcano plot
+#plotted one as a test
+ggplot(res05_df, aes(x=log2FoldChange, y=-log10(padj), col=significance)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) 
+```
+
+
+
+

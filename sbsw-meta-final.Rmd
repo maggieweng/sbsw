@@ -276,12 +276,13 @@ write.csv(diffex_tax, "diffex_tax_blocked.csv")
 
 Load packages and data:
 ```{r}
+#packages
+library(tidyverse)
+library(wesanderson)
 
 #theme and colors
 plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
 
-install.packages("wesanderson")
-library(wesanderson)
 
 #combining wes anderson color palettes into master palettes
 
@@ -553,5 +554,26 @@ ggplot(allgly, aes(x=time24, y=expression_mean, group=position)) +
   scale_color_manual(values=darjeeling10) +
   facet_wrap(~gene) +
   plot_theme
+```
+
+##REVISED FIGURES
+
+Based on feedback from reviewers, figures are being revised significantly. 
+
+
+#Overall differential expression across day/night cycle (Figure 2)
+Volcano plot:
+```{r}
+master_tax <-master_tax %>% select(-...1) 
+master_tax$significance <- "padj > 0.05"
+master_tax$significance[master_tax$padj < 0.05] <- "padj < 0.05"
+master_tax$significance[master_tax$padj < 0.01] <- "padj < 0.01"
+
+
+#this may be too big to make one big volcano plot
+#plotted one as a test
+ggplot(master_tax, aes(x=log2FoldChange, y=-log10(padj), col=significance)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) 
+
 ```
 
