@@ -80,5 +80,42 @@ ggplot(res05_df, aes(x=log2FoldChange, y=-log10(padj), col=significance)) + geom
 ```
 
 
+#filter by bins to look for interesting things
+
+201005_9_DNA_combo_bin.52: a Haloquadratum bin with high sod 
+other haloquadratums with high sod:
+201005_12_DNA_mat_2_bin.12
+201005_12_DNA_mat_2_bin.50: Haloquadratum #3
+
+```{r}
+bin_52 <-res05_df %>% filter(bin=="201005_9_DNA_combo_bin.52") %>% filter(padj<0.05)
+```
+
+
+201005_12_DNA_2_bin.48: salinibacter ruber
+
+other salinibacter bins: 201005_12_DNA_2_bin.30, 201005_12_DNA_mat_2_bin.6, 
+```{r}
+bin_48 <-res05_df %>% filter(bin=="201005_12_DNA_2_bin.48") %>% filter(padj<0.05)
+```
+
+Other bins of interest:
+201006_1_DNA_1_bin.52, 201006_1_DNA_1_bin.17: haloarculaceae
+
+201006_1_DNA_1_bin.34, 201007_15_DNA_mat_1_top_bin.57: haloferacaceae
+
+
+Photosynthetic reaction center:
+201005_10_DNA_3_bin.6: Roseovarius
+201005_11_DNA_mat_1_bin.140: Rhodobacteraceae
+201005_11_DNA_mat_1_bin.31: Wenzhouxiangellaceae
+201007_15_DNA_mat_1_top_bin.34: Halofilum
+
+Cyanobacteria: 
+201007_15_DNA_mat_2_bottom_bin.43: Halothece
+```{r}
+
+Halothece <-res05_df %>% filter(bin=="201007_15_DNA_mat_2_bottom_bin.43") %>% filter(padj<0.05)
+```
 
 
