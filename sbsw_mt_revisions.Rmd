@@ -5,6 +5,8 @@ date: "2/1/2024"
 output: html_document
 ---
 
+This document describes analysis of MTs from SBSW not separated by bin: running one DEseq2 analysis for the entire dataset. 
+
 ##Running DESeq2 differential expression analysis while correcting for batch effect in the LRT model
 https://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-matrix-input
 
