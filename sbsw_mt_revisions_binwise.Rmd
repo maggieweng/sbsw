@@ -88,6 +88,14 @@ prcomp(normalized_counts)
 
 How best to visualize the whole dataset?  showing overall differences btwn samples and that there is truly a day/night difference? 
 
+PCA plot using prcomp and ggbiplot:
+
+```{r}
+
+```
+
+
+
 #Looking for most highly expressed genomes
 
 ```{r}
