@@ -56,9 +56,20 @@ plotMA(MA_plot, ylim=c(-3,3))
 PCA test to visualize batch effects on the data in DESeq:
 ```{r}
 
-load("../current_data/raw_deseq_dataset.Rdata")
+#create matrix from mt_tally and call this mt_raw
+mt_raw <- mt_tally[,c(1, 5:40)]
+mt_raw <- as.data.frame(mt_raw)
+rownames(mt_raw) <-mt_raw$position
+mt_raw[,"position"] <- NULL
+
+dds <- DESeqDataSetFromMatrix(countData=mt_raw,
+                              colData=metadata_norm_v2,
+                              design=~extraction_batch + timecount_norm) #load deseq2 dataset 
+
 
 dds <- estimateSizeFactors( dds ) #normalizing data by gene length and rna counts
+
+save(dds, file="raw_deseq_dataset.Rdata")
 
 sizeFactors(dds)
 
@@ -75,23 +86,59 @@ mat <- assay(vsd)
 mm <- model.matrix(~timecount_norm, colData(vsd))
 mat <- limma::removeBatchEffect(mat, batch=vsd$extraction_batch, design=mm)
 assay(vsd) <- mat
-plotPCA(vsd, intgroup=c("time24", "extraction_batch", "pH", "temperature", "DO_sat", "Aw (in situ)")) + scale_color_brewer(palette="Paired")
+plotPCA(vsd, intgroup=c("time24", "extraction_batch", "pH", "temperature", "DO_sat", "Aw (in situ)", "light_condition")) + scale_color_brewer(palette="Paired")
 
 #this limma-corrected matrix can be used for downstream applications independent of deseq2 such as pca, statistical testing, etc. it should NOT be used as the input for deseq2 as it is not raw count data! deseq2 will remove batch effects internally if they are included in the design 
 
 
 write.csv(mat, "limma_corrected_counts.csv")
 
-#PCA outside of deseq2
-prcomp(normalized_counts)
+#PCA plot outside deseq2
+pcadata <- plotPCA(vsd, intgroup=c("time24", "extraction_batch", "pH", "temperature", "DO_sat", "Aw (in situ)", "light_condition"), returnData=TRUE)
+#This gives me the position of each sample within PC1 and PC2, but not any other information about PCs. Good for plotting but less good for analysis
 ```
 
 How best to visualize the whole dataset?  showing overall differences btwn samples and that there is truly a day/night difference? 
 
 PCA plot using prcomp and ggbiplot:
-
+https://tavareshugo.github.io/data-carpentry-rnaseq/03_rnaseq_pca.html
 ```{r}
+library(devtools)
+library(ggbiplot)
 
+#Put dataframe of limma-corrected counts in a format accepted by prcomp
+
+#pcadf <-corrected_counts %>% pivot_longer(!position, names_to="sample", values_to="corrected_count") %>% left_join(., metadata_norm_v2[,c(2, 5:10, 12)], by="sample")
+
+#create data matrix from corrected_counts
+
+pca_matrix <- corrected_counts %>% column_to_rownames("position") %>% as.matrix() %>% t()
+#see how it looks 
+pca_matrix[1:10, 1:5] #samples are rows, columns are variables (genes)
+
+sample_pca <-prcomp(pca_matrix)
+pc_eigenvalues <-sample_pca$sdev^2
+
+# create a "tibble" manually with 
+# a variable indicating the PC number
+# and a variable with the variances
+pc_eigenvalues <- tibble(PC = factor(1:length(pc_eigenvalues)), 
+                         variance = pc_eigenvalues) %>% 
+  # add a new column with the percent variance
+  mutate(pct = variance/sum(variance)*100) %>% 
+  # add another column with the cumulative variance explained
+  mutate(pct_cum = cumsum(pct))
+
+# print the result
+pc_eigenvalues
+
+#create scree plot to viaualize this
+pc_eigenvalues %>% 
+  ggplot(aes(x = PC)) +
+  geom_col(aes(y = pct)) +
+  geom_line(aes(y = pct_cum, group = 1)) + 
+  geom_point(aes(y = pct_cum)) +
+  labs(x = "Principal component", y = "Fraction variance explained")
 ```
 
 
