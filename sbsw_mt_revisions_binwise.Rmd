@@ -86,7 +86,7 @@ mat <- assay(vsd)
 mm <- model.matrix(~timecount_norm, colData(vsd))
 mat <- limma::removeBatchEffect(mat, batch=vsd$extraction_batch, design=mm)
 assay(vsd) <- mat
-plotPCA(vsd, intgroup=c("time24", "extraction_batch", "pH", "temperature", "DO_sat", "Aw (in situ)", "light_condition")) + scale_color_brewer(palette="Paired")
+plotPCA(vsd, intgroup=c("time24", "extraction_batch_numeric", "pH", "temperature", "DO_sat", "Aw (in situ)")) + scale_color_brewer(palette="Paired")
 
 #this limma-corrected matrix can be used for downstream applications independent of deseq2 such as pca, statistical testing, etc. it should NOT be used as the input for deseq2 as it is not raw count data! deseq2 will remove batch effects internally if they are included in the design 
 
@@ -94,12 +94,26 @@ plotPCA(vsd, intgroup=c("time24", "extraction_batch", "pH", "temperature", "DO_s
 write.csv(mat, "limma_corrected_counts.csv")
 
 #PCA plot outside deseq2
-pcadata <- plotPCA(vsd, intgroup=c("time24", "extraction_batch", "pH", "temperature", "DO_sat", "Aw (in situ)", "light_condition"), returnData=TRUE)
+pcadata <- plotPCA(vsd, intgroup=c("time24", "extraction_batch", "pH", "temperature", "DO_sat", "Aw (in situ)", "light_condition", "time"), returnData=TRUE)
 #This gives me the position of each sample within PC1 and PC2, but not any other information about PCs. Good for plotting but less good for analysis
 ```
 
+#Plotting PCA in ggplot to customize graphics:
+
+```{r}
+ggplot(pcadata, aes(x=PC1, y=PC2)) +
+  geom_point(size=3, aes(color=time, shape=extraction_batch)) +
+  stat_ellipse(mapping=aes(linetype=light_condition)) +
+  scale_color_brewer(palette="Paired") +
+  plot_theme
+  
+```
+
+
+
 How best to visualize the whole dataset?  showing overall differences btwn samples and that there is truly a day/night difference? 
 
+"Note that lack of clustering in a PCA does not mean nothing is happening. Imagine an RNAseq experiment where only a dozen genes changed due to your treatment. Because there’s few genes, transcriptome-wide you might not capture structure in the data."
 PCA plot using prcomp and ggbiplot:
 https://tavareshugo.github.io/data-carpentry-rnaseq/03_rnaseq_pca.html
 ```{r}
@@ -139,8 +153,76 @@ pc_eigenvalues %>%
   geom_line(aes(y = pct_cum, group = 1)) + 
   geom_point(aes(y = pct_cum)) +
   labs(x = "Principal component", y = "Fraction variance explained")
+
 ```
 
+PC1 and PC2 do NOT explain most of the variation in the dataset. Perhaps a non-linear method, like NMDS, would work better? Unsure why it looks so different from the PCA plot generated with plotPCA in DESeq2?
+#Could try it on un-corrected data?
+```{r}
+pca_matrix <- normalized_counts[,c(1:37)] %>% column_to_rownames("position") %>% as.matrix() %>% t() 
+#see how it looks 
+pca_matrix[1:10, 1:5] #samples are rows, columns are variables (genes)
+
+sample_pca <-prcomp(pca_matrix, scale=TRUE)
+pc_eigenvalues <-sample_pca$sdev^2
+
+# create a "tibble" manually with 
+# a variable indicating the PC number
+# and a variable with the variances
+pc_eigenvalues <- tibble(PC = factor(1:length(pc_eigenvalues)), 
+                         variance = pc_eigenvalues) %>% 
+  # add a new column with the percent variance
+  mutate(pct = variance/sum(variance)*100) %>% 
+  # add another column with the cumulative variance explained
+  mutate(pct_cum = cumsum(pct))
+
+# print the result
+pc_eigenvalues
+
+#create scree plot to viaualize this
+pc_eigenvalues %>% 
+  ggplot(aes(x = PC)) +
+  geom_col(aes(y = pct)) +
+  geom_line(aes(y = pct_cum, group = 1)) + 
+  geom_point(aes(y = pct_cum)) +
+  labs(x = "Principal component", y = "Fraction variance explained")
+
+pc_scores <- sample_pca$x
+pc_scores <- pc_scores %>% 
+  # convert to a tibble retaining the sample names as a new column
+  as_tibble(rownames = "sample")
+
+# print the result
+pc_scores
+
+pc_scores %>% 
+  # create the plot
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point()
+
+#scaled or unscaled, it's a mess
+```
+
+#How about NMDS?
+#Nope it looks confusing 
+```{r}
+library(vegan)
+pca_matrix <- corrected_counts %>% column_to_rownames("position") %>% as.matrix() %>% t() 
+#see how it looks 
+pca_matrix[1:10, 1:5] #samples are rows, columns are variables (genes)
+ord <- metaMDS(pca_matrix, k=2)
+data.scores=as.data.frame(scores(ord))
+data.scores$sample <-rownames(data.scores)
+
+nmds_plot <-left_join(data.scores, metadata_norm_v2, by="sample")
+
+#color is time
+ggplot(nmds_plot, aes(x=NMDS1, y=NMDS2)) +
+  geom_point(size=3, aes(color=time, shape=extraction_batch)) + 
+  plot_theme 
+  
+
+```
 
 
 #Looking for most highly expressed genomes
@@ -157,10 +239,11 @@ Many of these genomes are the same as those I've identified with interesting res
 
 #bacteriorhodopsins
 How to locate real bacteriorhodopsin genes vs homologs? 
-
-
 ```{r}
 rhodopsin <-diffex_tax %>% filter(product=="bacteriorhodopsin")
+#n=24 genes
+ggplot(rhodopsin, aes(x=position, y=baseMean, fill=family)) +
+  geom_bar(stat="identity")
 
 all_rhodopsin <-master_tax %>% filter(product=="bacteriorhodopsin")
 
@@ -177,15 +260,197 @@ rhodrelsum <-rhodopsin_relative %>% group_by(time24, position) %>% summarize(rel
 
 #line plot with error bars
 ggplot(rhodrelsum, aes(x=time24, y=relative_expression_mean, group=position)) +
-  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd, fill="grey")) +
-  geom_line(aes(color=family)) +
-  geom_point(aes(color=family)) +
-  scale_color_manual(values=c("blue", "green")) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
+  geom_line() +
+  geom_point() +
   plot_theme
 
 
+```
+
+#sod
+
+```{r}
+sod <-master_tax %>% filter(., product== "superoxide dismutase") %>% filter(padj <=0.05) #n=15 genes
+mean(sod$baseMean) #okay to take the mean of a mean?
+1224.632
+sodcounts <-normalized_counts %>% filter(position %in% sod$position) %>% pivot_longer(c(1:36), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample")
+
+sodcounts <- sodcounts %>% left_join(sod[,c(2,4)], by="position") %>% mutate(relative=value/baseMean)
+sodrelsummary <- sodcounts %>% group_by(time24, position) %>% summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% left_join(., sod[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(sodrelsummary, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#glycerol kinase
+
+```{r}
+glycerol <- diffex_tax[str_detect(diffex_tax$product, "glycerol kinase"),] #n=29 genes, 23 annotated specifically as glpK
+#mean expression
+mean(glycerol$baseMean)
+898.7927
+glycerol$gene <-"glycerol kinase"
+
+glycerol_plot <-normalized_counts %>% filter(position %in% glycerol$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(glycerol[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., glycerol[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(glycerol_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
 
 ```
+
+aconitate hydratase
+```{r}
+aco <-diffex_tax[str_detect(diffex_tax$product, "aconitate hydratase"),] #n=11
+
+aco_plot <-normalized_counts %>% filter(position %in% aco$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(aco[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., aco[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(aco_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+
+#pufMHL
+Note that this has a very low base mean of expression
+```{r}
+photo <- diffex_tax[str_detect(diffex_tax$product, "photosynthetic reaction center"),] #n=11, note that these have very low base mean expression 
+
+photo_plot <-normalized_counts %>% filter(position %in% photo$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(photo[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., photo[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(photo_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+
+```
+
+#bacteriochlorophyll
+Note that this has a very low base mean of expression
+ATP-dependent prochlorophyllide reductase is non-light-dependent, oxygen-sensitive, found in Halothece
+chlorophyllide a reductase is key enzyme for producing bacteriochlorophyll
+```{r}
+chlorophyll <- diffex_tax[str_detect(diffex_tax$product, "chloro"),] 
+
+bchl_plot <-normalized_counts %>% filter(position %in% chlorophyll$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(chlorophyll[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., chlorophyll[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(bchl_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#oxygenic photosynthesis
+```{r}
+photosystem2 <- diffex_tax[str_detect(diffex_tax$product, "photosystem II"),]
+
+photosystem2_plot <-normalized_counts %>% filter(position %in% photosystem2$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(photosystem2[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., photosystem2[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(photosystem2_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+photosystemI <-diffex_tax[str_detect(diffex_tax$product, "photosystem I core protein"),]
+photosystemI_plot <-normalized_counts %>% filter(position %in% photosystemI$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(photosystemI[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., photosystemI[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(photosystemI_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#Fe-S cluster assembly
+```{r}
+suf <- diffex_tax[str_detect(diffex_tax$product, "Suf"),] 
+
+suf_plot <-normalized_counts %>% filter(position %in% suf$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(suf[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., suf[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(suf_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+
+```{r}
+
+```
+
 
 Visualizing salinibacter ruber expression in SBSW:
 
@@ -193,12 +458,46 @@ Visualizing salinibacter ruber expression in SBSW:
 
 ```{r}
 
-bin48 <-diffex_tax %>% filter(bin=="201005_12_DNA_2_bin.48")
+bin48 <-master_tax %>% filter(bin=="201005_12_DNA_2_bin.48")
+bin30 <-master_tax %>% filter(bin=="201005_12_DNA_2_bin.30")
+bin6 <-master_tax %>% filter(bin=="201005_12_DNA_mat_2_bin.6")
 ```
 
 
+MA plots for 3 S. ruber bins as well as the S. ruber genome, vertically aligned 
 
 
+```{r}
+
+#bin48
+bin48 <-as.data.frame(bin48)
+bin48$significance <-"FALSE"
+bin48$significance[bin48$padj < 0.05] <- "TRUE"
+bin48$significance <-as.logical(bin48$significance)
+
+bin48_diffex <- bin48 %>% filter(padj<0.05)
+MA_plot <-bin48[,c("baseMean", "log2FoldChange", "significance")]
+geneplotter::plotMA(MA_plot, ylim=c(-2,2), colSig="blue", colLine="#ff000080")
+
+#bin30
+bin30 <-as.data.frame(bin30)
+bin30$significance <-"FALSE"
+bin30$significance[bin30$padj < 0.05] <- "TRUE"
+bin30$significance <-as.logical(bin30$significance)
+
+bin30_MA_plot <-bin30[,c("baseMean", "log2FoldChange", "significance")]
+geneplotter::plotMA(bin30_MA_plot, ylim=c(-2,2), colSig="blue")
+
+#bin6
+bin6 <-as.data.frame(bin6)
+bin6$significance <-"FALSE"
+bin6$significance[bin6$padj < 0.05] <- "TRUE"
+bin6$significance <-as.logical(bin6$significance)
+
+bin6_MA_plot <-bin6[,c("baseMean", "log2FoldChange", "significance")]
+geneplotter::plotMA(bin6_MA_plot, ylim=c(-2,2), colSig="red")
+
+```
 
 
 
