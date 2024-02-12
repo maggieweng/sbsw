@@ -16,6 +16,7 @@ Cons:
 ```{r}
 library(tidyverse)
 library(DESeq2)
+library(wesanderson)
 
 ```
 
@@ -31,6 +32,8 @@ corrected_counts <-read_csv("../current_data/limma_corrected_counts.csv")
 
 #load visuals
 plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
+
+wes_palette_20 <-c(wes_palette("Cavalcanti1"), wes_palette("GrandBudapest1"), wes_palette("AsteroidCity2"), wes_palette("GrandBudapest2"), wes_palette("IsleofDogs2"))
 ```
 
 #MA plot of fold change vs base mean for all genes in the dataset
@@ -446,8 +449,25 @@ ggplot(suf_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
 
 ```
 
-
+#Phosphate uptake
+Pst only not PhoU
 ```{r}
+phosphate <- diffex_tax %>% filter(product== "phosphate ABC transporter permease PstA"| product=="phosphate ABC transporter ATP-binding protein PstB" | product=="phosphate ABC transporter permease subunit PstC" | product=="PstS family phosphate ABC transporter substrate-binding protein")
+
+phosphate_plot <-normalized_counts %>% filter(position %in% phosphate$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(phosphate[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., phosphate[,c(4:6, 9,12,13)], by="position")
+
+ggplot(phosphate_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
 
 ```
 
@@ -462,7 +482,6 @@ bin48 <-master_tax %>% filter(bin=="201005_12_DNA_2_bin.48")
 bin30 <-master_tax %>% filter(bin=="201005_12_DNA_2_bin.30")
 bin6 <-master_tax %>% filter(bin=="201005_12_DNA_mat_2_bin.6")
 ```
-
 
 MA plots for 3 S. ruber bins as well as the S. ruber genome, vertically aligned 
 
@@ -503,4 +522,36 @@ geneplotter::plotMA(bin6_MA_plot, ylim=c(-2,2), colSig="red")
 
 Thoughts on visualizing these genes
 -Could create a basemean cutoff to exclude low-count genes. This would have to be consistent across the entire dataset. 
+
+
+Visualizing how transcription level for bins changes across day/night
+
+```{r}
+
+total_counts_sample <- as.data.frame(colSums(normalized_counts[,c(1:36)])) 
+total_counts_sample$sample <-rownames(total_counts_sample)
+
+
+counts_per_bin <- normalized_counts %>% pivot_longer(c(1:36), names_to="sample", values_to="count") %>% group_by(bin, sample) %>% summarize(counts_per_bin=sum(count))
+
+prop_counts <-left_join(counts_per_bin, total_counts_sample, by="sample") %>% mutate(percent_counts_bin=(counts_per_bin/colSums(normalized_counts[,c(1:36)]))*100)
+
+#Join to higher order taxonomic information
+bins <-unique(master_tax$bin)
+taxonomy <-read_csv("../mt_data_v2/gtdbtk_results/gtdbtk_full.csv")
+sbsw_bins <-taxonomy %>% filter(bin %in% bins)
+
+prop_counts <-left_join(prop_counts, sbsw_bins[,c(1:8)], by="bin")
+
+#make anything with less than 1% 'other?
+#more in depth than class?
+#average across replicates?
+
+#visualize this on a plot
+
+ggplot(prop_counts, aes(x=sample, y=percent_counts_bin, fill=class)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=wes_palette_20) +
+  plot_theme
+```
 
