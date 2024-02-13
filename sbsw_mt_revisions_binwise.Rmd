@@ -543,15 +543,30 @@ sbsw_bins <-taxonomy %>% filter(bin %in% bins)
 
 prop_counts <-left_join(prop_counts, sbsw_bins[,c(1:8)], by="bin")
 
-#make anything with less than 1% 'other?
-#more in depth than class?
-#average across replicates?
+prop_counts <- prop_counts %>% mutate(plot=if_else(percent_counts_bin>=1, bin, "Other"))
 
-#visualize this on a plot
 
-ggplot(prop_counts, aes(x=sample, y=percent_counts_bin, fill=class)) +
+#visualize this on a plot--transcript counts per sample and their taxonomic assignments
+
+ggplot(prop_counts, aes(x=sample, y=percent_counts_bin, fill=plot)) +
   geom_bar(stat="identity") +
-  scale_fill_manual(values=wes_palette_20) +
+  scale_fill_manual(values=dans_colors_master) +
   plot_theme
+#two massively overexpressed genes are driving this trend: "NODE_14322_length_5025_cov_38.148089_pgaptmp_000414", a hypothetical protein, and "NODE_1192_length_23858_cov_130.356636_pgaptmp_000174" (pyruvate dehydrogenase)
+
+#total number of genes ascribed to each sample (not counts/expression level)
+
+genes_in_dataset <- master_tax %>% group_by(bin) %>% summarize(n_genes=length(position))
+
+
+normalized_counts %>% filter(position=="NODE_14322_length_5025_cov_38.148089_pgaptmp_000414") %>% pivot_longer(c(1:36),names_to="sample", values_to="count") %>% ggplot(., aes(x=sample, y=count)) + geom_point() + plot_theme
+
+normalized_counts %>% filter(position=="NODE_1192_length_23858_cov_130.356636_pgaptmp_000174") %>% pivot_longer(c(1:36),names_to="sample", values_to="count")# %>% #ggplot(., aes(x=sample, y=count)) + geom_point() + plot_theme
+
+#potentially a batch effect?
+
+scale_fill_manual(values=wes_palette_20) +
+
 ```
+
 
