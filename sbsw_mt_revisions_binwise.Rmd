@@ -31,9 +31,11 @@ normalized_counts <-read_csv("../current_data/normalized_mt_tally_v2_genes.csv")
 corrected_counts <-read_csv("../current_data/limma_corrected_counts.csv")
 
 #load visuals
-plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
+plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
 
-wes_palette_20 <-c(wes_palette("Cavalcanti1"), wes_palette("GrandBudapest1"), wes_palette("AsteroidCity2"), wes_palette("GrandBudapest2"), wes_palette("IsleofDogs2"))
+wes_palette_27 <-c(wes_palette("Cavalcanti1"), wes_palette("GrandBudapest1"), wes_palette("Moonrise3"), wes_palette("GrandBudapest2"), wes_palette("IsleofDogs1"), wes_palette("Darjeeling1"))
+
+
 ```
 
 #MA plot of fold change vs base mean for all genes in the dataset
@@ -51,6 +53,17 @@ master_tax$significance <-as.logical(master_tax$significance)
 MA_plot <-master_tax %>% select(-c(3:14))
 MA_plot <-MA_plot[,c("baseMean", "log2FoldChange", "significance")]
 plotMA(MA_plot, ylim=c(-3,3))
+
+#Alternatively, volcano plot
+
+master_tax$diffex <-"padj > 0.05"
+master_tax$diffex[master_tax$padj <0.05] <-"padj <0.05"
+master_tax$diffex[master_tax$padj < 0.01] <- "padj < 0.01"
+
+ggplot(master_tax, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black"))
+
+
 
 ```
 
@@ -385,7 +398,7 @@ ggplot(glycerol_plot, aes(x=time24, y=relative_expression_mean, group=position))
 
 ```
 
-aconitate hydratase
+#aconitate hydratase
 ```{r}
 aco <-diffex_tax[str_detect(diffex_tax$product, "aconitate hydratase"),] #n=11
 
@@ -605,9 +618,10 @@ counts_per_bin <- normalized_counts %>% pivot_longer(c(1:36), names_to="sample",
 prop_counts <-left_join(counts_per_bin, total_counts_sample, by="sample") %>% mutate(percent_counts_bin=(counts_per_bin/colSums(normalized_counts[,c(1:36)]))*100)
 
 #Join to higher order taxonomic information
-bins <-unique(master_tax$bin)
-taxonomy <-read_csv("../mt_data_v2/gtdbtk_results/gtdbtk_full.csv")
-sbsw_bins <-taxonomy %>% filter(bin %in% bins)
+#bins <-unique(master_tax$bin)
+#taxonomy <-read_csv("../mt_data_v2/gtdbtk_results/gtdbtk_full.csv")
+#sbsw_bins <-taxonomy %>% filter(bin %in% bins)
+sbsw_bins <-read_csv("sbsw_bins.csv") %>%select(-...1)
 
 prop_counts <-left_join(prop_counts, sbsw_bins[,c(1:8)], by="bin")
 
@@ -618,7 +632,7 @@ prop_counts <- prop_counts %>% mutate(plot=if_else(percent_counts_bin>=1, bin, "
 
 ggplot(prop_counts, aes(x=sample, y=percent_counts_bin, fill=plot)) +
   geom_bar(stat="identity") +
-  scale_fill_manual(values=dans_colors_master) +
+  scale_fill_manual(values=wes_palette_20) +
   plot_theme
 #two massively overexpressed genes are driving this trend: "NODE_14322_length_5025_cov_38.148089_pgaptmp_000414", a hypothetical protein, and "NODE_1192_length_23858_cov_130.356636_pgaptmp_000174" (pyruvate dehydrogenase)
 
@@ -637,4 +651,64 @@ scale_fill_manual(values=wes_palette_20)
 
 ```
 
+Removing the 2 very overexpressed genes and trying again:
+
+BLAST these genes:
+NODE_1943_length_16146_cov_30.276739_pgaptmp_000182 (201005_11_DNA_2_bin.2, Rhodothermia) #16S ribosomal gene
+NODE_14322_length_5025_cov_38.148089_pgaptmp_000414 (201007_15_DNA_mat_1_top_bin.31, Halomarina) #ribosomal RNA or complete genome assembly
+NODE_1192_length_23858_cov_130.356636_pgaptmp_000174 (201007_15_DNA_mat_1_top_bin.45, Halobacteriales SW-7-71-33) # a huge gene! Only hits are to complete genomes or ribosomal RNA, not a pyruvate dehydrogenase 
+NODE_1202_length_16857_cov_174.740507_pgaptmp_000190 (201005_12_DNA_2_bin.1, Halorubrum) # complete genome assemblies only
+
+
+Spot check important genes of interest on BLAST!!
+
+```{r}
+filtered_counts <-normalized_counts %>% filter(!(position %in% c("NODE_14322_length_5025_cov_38.148089_pgaptmp_000414","NODE_1192_length_23858_cov_130.356636_pgaptmp_000174")))
+
+filtered_total <-as.data.frame(colSums(filtered_counts[,c(1:36)])) 
+filtered_total$sample <-rownames(filtered_total)
+
+filtered_counts_bin <- filtered_counts %>% pivot_longer(c(1:36), names_to="sample", values_to="count") %>% group_by(bin, sample) %>% summarize(counts_per_bin=sum(count))
+
+filtered_prop_counts <-left_join(filtered_counts_bin, filtered_total, by="sample") %>% mutate(percent_counts_bin=(counts_per_bin/colSums(filtered_counts[,c(1:36)]))*100)
+
+filtered_prop_counts <-left_join(filtered_prop_counts, sbsw_bins[,c(1:8)], by="bin")
+
+filtered_prop_counts <- filtered_prop_counts %>% mutate(plot=if_else(percent_counts_bin>=0.5, bin, "Other"))
+
+
+#visualize this on a plot--transcript counts per sample and their taxonomic assignments
+
+ggplot(filtered_prop_counts, aes(x=sample, y=percent_counts_bin, fill=plot)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=wes_palette_27) +
+  plot_theme
+
+#as a bubble plot rather than a stacked barplot? 
+ggplot(filtered_prop_counts, aes(x=sample, y=plot,size=percent_counts_bin)) + 
+  geom_point(aes(color=class)) +
+  scale_color_manual(values=wes_palette_20) +
+  plot_theme
+
+#reorder by domain
+filtered_prop_counts$plot_order <-filtered_prop_counts$class
+filtered_prop_counts <-filtered_prop_counts %>% mutate(plot_order=if_else(plot=="Other","Other", class))
+filtered_prop_counts$plot_order <-as.factor(filtered_prop_counts$plot_order)
+levels(filtered_prop_counts$plot_order)
+
+#filtered_prop_counts %>% mutate(plot_order=fct_infreq(plot_order)) %>%
+  ggplot(filtered_prop_counts, aes(x=sample, y=(plot),size=percent_counts_bin)) + 
+  geom_point(aes(color=(plot_order))) +
+  scale_color_manual(values=c(wes_palette("Cavalcanti1"), wes_palette("GrandBudapest1"), wes_palette("Darjeeling1"), wes_palette("Moonrise3"), wes_palette("IsleofDogs1"))) +
+  plot_theme
+```
+
+Plotting the average percentage from all replicates (we lose the batch effect that we are seeing earlier)
+Sum the counts across all replicates
+Sum the counts per bin across all replicates
+
+```{r}
+
+avg_total <-total_counts_sample %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time) %>% summarize(total_counts_timepoint=sum(`colSums(normalized_counts[, c(1:36)])`))
+```
 
