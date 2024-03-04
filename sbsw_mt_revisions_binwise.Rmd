@@ -599,6 +599,53 @@ geneplotter::plotMA(bin6_MA_plot, ylim=c(-2,2), colSig="red")
 
 ```
 
+#investigating rhodopsins in salinibacter bins and culture
+
+```{r}
+
+salinibacter <- master_tax %>% filter(bin %in% c("201005_12_DNA_2_bin.48", "201005_12_DNA_2_bin.30", "201005_12_DNA_mat_2_bin.6"))
+salinibacter_diffex <- salinibacter %>% filter(padj<=0.05)
+
+#load s ruber culture files
+
+load("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/sruber/sruber_light_deseq.Rdata")
+culture_diffex <-light_df %>% filter(padj<=0.05)
+load("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/sruber/sruber_normalized_counts.Rdata")
+metadata <-read_csv("../sruber/sruber_cds_alignment/sruber_metadata.csv")
+
+#what are the xanthorhodopsins doing? NC_007677.1_WP_011404249.1, NC_007677.1_WP_011405291.1, NC_007677.1_WP_011405484.1, NC_007677.1_WP_011405223.1
+
+xantho_plot <-normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404249.1", "NC_007677.1_WP_011405291.1", "NC_007677.1_WP_011405484.1", "NC_007677.1_WP_011405223.1")) %>% pivot_longer(!gene_id, names_to="sample") %>% left_join(metadata, by="sample") %>% group_by(gene_id, date_time) %>% summarise(mean_exp=mean(value), sd=sd(value))
+
+#line plot with error bars
+ggplot(xantho_plot, aes(x=date_time, y=mean_exp, group=gene_id)) +
+  geom_ribbon(aes(ymin=mean_exp-sd, ymax=mean_exp+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+#one xanthorhodopsin only turned on in the light! as expected. phew
+#all the others have much less expression
+
+ggplot(xantho_plot %>% filter(!(gene_id=="NC_007677.1_WP_011404249.1")), aes(x=date_time, y=mean_exp, group=gene_id)) +
+  geom_ribbon(aes(ymin=mean_exp-sd, ymax=mean_exp+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+
+```
+gene_id=="NC_007677.1_WP_011404249.1" is most highly expressed --> putative xanthorhodopsin as per Mongodin et al. 2005 (B) close to lycopene beta-cyclase and a tRNA!
+
+much less expressed:
+NC_007677.1_WP_011405484.1 --> inward-directed chlorine pump similar to haloarchaeal rhodopsins (E)
+NC_007677.1_WP_011405223.1 --> putative sensory rhodopsins: 
+NC_007677.1_WP_011405291.1 --> putative sensory rhodopsins:
+
+These have different labels on the genome browser: it's confusing
+"in Halobacterium, two SRs (SRI and SRII) interact to produce a color-sensitive phototactic behavior"
+"Until very recently (see below), there has been no information about Salinibacter photobiology and the function of the two genes homologous to SRs still can be inferred only from the genomic context."
+
 
 
 Thoughts on visualizing these genes
@@ -710,5 +757,27 @@ Sum the counts per bin across all replicates
 ```{r}
 
 avg_total <-total_counts_sample %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time) %>% summarize(total_counts_timepoint=sum(`colSums(normalized_counts[, c(1:36)])`))
+```
+
+
+
+
+#salinibacter ruber genome
+
+Volcano plot:
+
+```{r}
+
+#light
+light_df$diffex <- "padj > 0.05"
+light_df$diffex[light_df$padj < 0.05] <- "padj < 0.05"
+light_df$diffex[light_df$padj < 0.01] <- "padj < 0.01"
+ggplot(light_df, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) +
+  plot_theme
+
+greatest_lfc 
+
+greatest_padj 
 ```
 
