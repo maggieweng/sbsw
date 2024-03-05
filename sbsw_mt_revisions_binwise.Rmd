@@ -646,13 +646,87 @@ These have different labels on the genome browser: it's confusing
 "in Halobacterium, two SRs (SRI and SRII) interact to produce a color-sensitive phototactic behavior"
 "Until very recently (see below), there has been no information about Salinibacter photobiology and the function of the two genes homologous to SRs still can be inferred only from the genomic context."
 
+NODE_242_length_47958_cov_30.149072_pgaptmp_000939 : the rhodopsin from salinibacter sbsw
+BLAST this: aligns to same region of sruber genome as NC_007677.1_WP_011404249.1, putative xanthorhodopsin
+
+#Choosing genes for the heatmap comparing bins to genome
+
+-rhodopsins
+NC_007677.1_WP_011404221.1: glycerol kinase
+NC_007677.1_WP_011404468.1: superoxide dismutase
+NC_007677.1_WP_112903941.1: sufB
+NC_007677.1_WP_011404137.1: sufD
+NC_007677.1_WP_011405017.1: pstS
+
+S. ruber genome
+```{r}
+#volcano plot
+light_df$diffex <- "padj > 0.05"
+light_df$diffex[light_df$padj < 0.05] <- "padj < 0.05"
+light_df$diffex[light_df$padj < 0.01] <- "padj < 0.01"
+ggplot(light_df, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) +
+  plot_theme
+
+greatest_padj <- head(arrange(light_df,padj), n=35) %>% filter(product != "hypothetical protein")
+
+greatest_lfc_pos <-head(arrange(light_df, desc(log2FoldChange)), n=35) %>% filter(padj <=0.05) %>% filter(product != "hypothetical protein")
+
+greatest_lfc_neg <-head(arrange(light_df, log2FoldChange), n=35) %>% filter(padj <=0.05) %>% filter(product != "hypothetical protein")
+
+genes_of_interest <-light_df %>% filter(gene_id %in% c("NC_007677.1_WP_011404249.1", "NC_007677.1_WP_011405484.1", "NC_007677.1_WP_011405223.1", "NC_007677.1_WP_011405291.1", "NC_007677.1_WP_011404221.1", "NC_007677.1_WP_011404468.1", "NC_007677.1_WP_112903941.1", "NC_007677.1_WP_011404137.1", "NC_007677.1_WP_011405017.1"))
+
+#join dataframes and remove duplicates
+
+genome_heatmap <-rbind(greatest_padj, greatest_lfc_pos, greatest_lfc_neg, genes_of_interest) %>% distinct()
+
+write_csv(genome_heatmap, "sruber_culture_heatmap.csv")
+
+#now find these genes in salinibacter
+
+#test
+selected_genes <- salinibacter %>% filter(product %in% genome_heatmap$product | product %in% c("bacteriorhodopsin", "bacteriorhodopsin-like", "glycerol kinase GlpK", "superoxide dismutase", "Fe-S cluster assembly protein SufB", "Fe-S cluster assembly protein SufD", "PstS family phosphate ABC transporter substrate-binding protein"))
+
+test <- selected_genes %>% pivot_wider(., names_from=bin, values_from=product)
+
+write.csv(selected_genes, "salinibacter_sbsw_heatmap.csv")
 
 
-Thoughts on visualizing these genes
--Could create a basemean cutoff to exclude low-count genes. This would have to be consistent across the entire dataset. 
+#download and merge dataframes in excel to compare the selected genes across all genomes
+
+plot <-read_csv("../sruber/for_sruber_heatmap_plot.csv")
+plot$bin.48 <- as.numeric(plot$bin.48)
+
+plot_long <- plot %>% pivot_longer(!product, names_to="genome", values_to="foldchange")
+
+ggplot(plot_long, aes(x=genome, y=product, fill=foldchange)) +
+  geom_tile() +
+  scale_fill_viridis() +
+  plot_theme
+
+pheatmap(plot)
+
+```
+
+TetR family transcriptional regulator in genome:
+See if this has a similar sequence: NODE_6628_length_5362_cov_86.014132_pgaptmp_002059
 
 
-Visualizing how transcription level for bins changes across day/night
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Visualizing how transcription level for bins changes across day/night
 
 ```{r}
 
@@ -760,24 +834,4 @@ avg_total <-total_counts_sample %>% left_join(., metadata_norm_v2, by="sample") 
 ```
 
 
-
-
-#salinibacter ruber genome
-
-Volcano plot:
-
-```{r}
-
-#light
-light_df$diffex <- "padj > 0.05"
-light_df$diffex[light_df$padj < 0.05] <- "padj < 0.05"
-light_df$diffex[light_df$padj < 0.01] <- "padj < 0.01"
-ggplot(light_df, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
-  scale_color_manual(values=c("blue", "red", "black")) +
-  plot_theme
-
-greatest_lfc 
-
-greatest_padj 
-```
 
