@@ -312,7 +312,7 @@ write_csv(genes_per_taxa, "phylum_all_genes.csv")
 
 #taxonomic summary of significantly differentially expressed genes
 
-diffex_genes <- diffex_tax %>% group_by(family) %>% summarize(count=n()) %>%arrange(count) %>% mutate(percent_reads=100*(count/sum(count)))
+diffex_genes <- diffex_tax %>% group_by(genus) %>% summarize(count=n()) %>%arrange(count) %>% mutate(percent_reads=100*(count/sum(count)))
 
 write_csv(diffex_genes, "phylum_diffex_genes.csv")
 
