@@ -335,15 +335,35 @@ all_rhodopsin <-master_tax %>% filter(product=="bacteriorhodopsin")
 #this cannot be done for batch-corrected count data since it is log transformed
 
 #counts for all bacteriorhodopsin genes (not corrected!)
+
+rhodopsin <- rhodopsin %>% mutate(regulation=if_else(log2FoldChange>0, "up", "down"))
 rhodopsin_counts <-normalized_counts %>% filter(position %in% rhodopsin$position) %>% pivot_longer(c(1:36), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) 
 
 #relative expression (divide by basemean)
 rhodopsin_relative <-rhodopsin_counts %>% left_join(rhodopsin[,c(2,4)], by="position") %>% mutate(relative_expression=value/baseMean)
-rhodrelsum <-rhodopsin_relative %>% group_by(time24, position) %>% summarize(relative_expression_mean=mean(relative_expression), sd=sd(relative_expression)) %>% left_join(., rhodopsin[,c(4:7,12)], by="position")
+rhodrelsum <-rhodopsin_relative %>% group_by(time24, position) %>% summarize(relative_expression_mean=mean(relative_expression), sd=sd(relative_expression)) %>% left_join(., rhodopsin[,c(4:7,12,15)], by="position")
 
 
 #line plot with error bars
 ggplot(rhodrelsum, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
+  geom_line(aes(linetype=regulation)) +
+  geom_point() +
+  scale_linetype_manual(values=c("dotdash","solid")) +
+  plot_theme
+
+
+neg_foldchange <- diffex_tax %>% filter(product=="bacteriorhodopsin" & log2FoldChange <0)
+#counts for all bacteriorhodopsin genes (not corrected!)
+neg_counts <-normalized_counts %>% filter(position %in% neg_foldchange$position) %>% pivot_longer(c(1:36), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) 
+
+#relative expression (divide by basemean)
+neg_relative <-neg_counts %>% left_join(neg_foldchange[,c(2,4)], by="position") %>% mutate(relative_expression=value/baseMean)
+negsum <-neg_relative %>% group_by(time24, position) %>% summarize(relative_expression_mean=mean(relative_expression), sd=sd(relative_expression)) %>% left_join(., neg_foldchange[,c(4:7,12)], by="position")
+
+
+#line plot with error bars
+ggplot(negsum, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
   geom_line() +
   geom_point() +
@@ -550,6 +570,186 @@ ggplot(phosphate_plot, aes(x=time24, y=relative_expression_mean, group=position)
   geom_point() +
   plot_theme
 
+```
+
+ADDING SIX MORE GENES to make it 4x4 not 3x3 figure:
+
+#isocitrate dehydrogenase
+
+```{r}
+iso <-diffex_tax[str_detect(diffex_tax$product, "isocitrate dehydrogenase"),]
+
+iso_plot <-normalized_counts %>% filter(position %in% iso$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(iso[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., iso[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(iso_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+
+#phosphoenolpyruvate synthase
+
+```{r}
+pyruv <-diffex_tax %>% filter(product=="phosphoenolpyruvate synthase")
+
+pyruv_plot <-normalized_counts %>% filter(position %in% pyruv$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(pyruv[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., pyruv[,c(4:6, 9,12,13)], by="position")
+
+ggplot(pyruv_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+#No clear pattern--it is used in both glycolysis and gluconeogenesis!
+```
+
+#2-isopropylmalate synthase
+```{r}
+
+malate <-diffex_tax %>% filter(product=="2-isopropylmalate synthase")
+
+malate_plot <-normalized_counts %>% filter(position %in% malate$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(malate[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., malate[,c(4:6, 9,12,13)], by="position")
+
+ggplot(malate_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#acetolactate synthase
+
+```{r}
+aceto <-diffex_tax[str_detect(diffex_tax$product, "acetolactate synthase"),]
+
+aceto_plot <-normalized_counts %>% filter(position %in% aceto$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(aceto[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., aceto[,c(4:6, 9,12,13)], by="position")
+
+ggplot(aceto_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#glutamate synthase
+
+```{r}
+#glutamate synthase 
+glutamate <- diffex_tax %>% filter(., product=="glutamate synthase large subunit")
+
+gluta_plot <-normalized_counts %>% filter(position %in% glutamate$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(glutamate[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., glutamate[,c(4:6, 9,12,13)], by="position")
+
+ggplot(gluta_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#phosphate uptake regulator PhoU
+
+```{r}
+phosreg <- diffex_tax %>% filter(product=="phosphate uptake regulator PhoU" | product== "phosphate signaling complex protein PhoU" )
+
+phosreg_plot <-normalized_counts %>% filter(position %in% phosreg$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(phosreg[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., phosreg[,c(4:6, 9,12,13)], by="position")
+
+ggplot(phosreg_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#bacteriochlorophyll
+
+```{r}
+chlorophyll <- diffex_tax[str_detect(diffex_tax$product, "chloro"),] 
+
+chloro_plot <-normalized_counts %>% filter(position %in% chlorophyll$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(chlorophyll[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., chlorophyll[,c(4:6, 9,12,13)], by="position")
+
+ggplot(chloro_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#glycerol dehydrogenases (for supplement)
+```{r}
+dehydro <-diffex_tax[str_detect(diffex_tax$product, "glycerol-3-phosphate dehydrogenase"), ]
+#make gene names wrappable
+dehydro <- dehydro %>% mutate(gene=case_when(
+  startsWith(product, "anaerobic") ~ "anaerobic glycerol-3-phosphate dehydrogenase",
+  startsWith(product, "glycerol-3-phosphate") ~ "glycerol-3-phosphate dehydrogenase"))
+
+dehydro_plot <-normalized_counts %>% filter(position %in% dehydro$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(dehydro[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., dehydro[,c(4:7, 9,12,13)], by="position")
+
+ggplot(dehydro_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line(aes(linetype=gene)) +
+  geom_point() +
+  plot_theme
 ```
 
 
