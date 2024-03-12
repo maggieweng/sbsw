@@ -809,7 +809,7 @@ salinibacter_diffex <- salinibacter %>% filter(padj<=0.05)
 #load s ruber culture files
 
 load("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/sruber/sruber_light_deseq.Rdata")
-eculture_diffex <-light_df %>% filter(padj<=0.05)
+culture_diffex <-light_df %>% filter(padj<=0.05)
 load("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/sruber/sruber_normalized_counts.Rdata")
 metadata <-read_csv("../sruber/sruber_cds_alignment/sruber_metadata.csv")
 
