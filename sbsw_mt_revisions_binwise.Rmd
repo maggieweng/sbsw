@@ -808,9 +808,9 @@ salinibacter_diffex <- salinibacter %>% filter(padj<=0.05)
 
 #load s ruber culture files
 
-load("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/sruber/sruber_light_deseq.Rdata")
+load("sruber_light_deseq.Rdata")
 culture_diffex <-light_df %>% filter(padj<=0.05)
-load("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/sruber/sruber_normalized_counts.Rdata")
+load("sruber_normalized_counts.Rdata")
 metadata <-read_csv("../sruber/sruber_cds_alignment/sruber_metadata.csv")
 
 #what are the xanthorhodopsins doing? NC_007677.1_WP_011404249.1, NC_007677.1_WP_011405291.1, NC_007677.1_WP_011405484.1, NC_007677.1_WP_011405223.1
@@ -894,7 +894,7 @@ write.csv(selected_genes, "salinibacter_sbsw_heatmap.csv")
 
 #download and merge dataframes in excel to compare the selected genes across all genomes
 
-plot <-read_csv("../sruber/for_sruber_heatmap_plot.csv")
+plot <-read_csv("../revised_figures/sruber_heatmap_for_plot.csv")
 plot$bin.48 <- as.numeric(plot$bin.48)
 
 plot_long <- plot %>% pivot_longer(!product, names_to="genome", values_to="foldchange")
@@ -904,7 +904,10 @@ ggplot(plot_long, aes(x=genome, y=product, fill=foldchange)) +
   scale_fill_viridis() +
   plot_theme
 
-pheatmap(plot)
+plot <- as.data.frame(plot)
+rownames(plot) <-plot$product
+plot$product <-NULL
+pheatmap(plot, cluster_cols=FALSE)
 
 ```
 
