@@ -1,0 +1,939 @@
+---
+title: "SBSW_sruber"
+author: "maggie weng"
+date: "2/27/2023"
+output: html_document
+---
+
+Processing and analyzing Salinibacter ruber transcriptome data
+
+```{bash, eval=F}
+
+bwa index GCF_000013045.1_ASM1304v1_genomic.fna.gz
+
+#qc reads with fastp 
+
+while read -r line; do
+
+echo ${line}
+
+fastp -i ${line}_R1_001.fastq.gz -I ${line}_R2_001.fastq.gz -o ${line}_R1_001.qc.fastq.gz -O ${line}_R2_001.qc.fastq.gz
+
+done<sruber_filepath.txt
+
+#align reads to reference genome with bwa
+
+#!/bin/bash
+#SBATCH --job-name=sruber_alignment
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=24:00:00 #48 hrs is the max
+#SBATCH --mem=300G # a value of 0 here will allocate all available memory
+#SBATCH --partition bigmem-1TB
+
+#load environment
+module load miniconda3
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+while read -r line; do
+
+bwa mem -t 24 GCF_000013045.1_ASM1304v1_genomic.fna.gz ${line}_R1_001.qc.fastq.gz ${line}_R2_001.qc.fastq.gz > ${line}.sam
+
+done<sruber_filepath.txt
+
+#see how many reads aligned with samtools flagstat
+
+
+#!/bin/bash
+#SBATCH --job-name=sruber_readstats
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=24:00:00 #48 hrs is the max
+#SBATCH --mem=32G # a value of 0 here will allocate all available memory
+#SBATCH --partition singleGPU
+
+#load environment
+module load miniconda3
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+while read -r line; do
+
+samtools flagstat ${line}.sam > ${line}_stats.txt
+
+done<sruber_filepath.txt
+
+```
+
+To see a list of all modules available on fram, run "module spider"
+Installing pandas into the sbsw conda environment so that parse_sam.py and parse_manysams.py can run...
+That didn't work so I'm trying to install it in python
+```{bash, eval=F}
+source ~/.bashrc
+module load python
+pip install pandas
+
+#pip install worked!
+#time to see if the script works
+
+#!/bin/bash
+#SBATCH --job-name=sruber_readcounts
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=24:00:00 #48 hrs is the max
+#SBATCH --mem=32G # a value of 0 here will allocate all available memory
+#SBATCH --partition singleGPU
+
+#load environment
+module load miniconda3
+module load python
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+python parse_manysams.py 
+
+#FIN
+```
+
+Now tally the read counts for each gene in the annotation file:
+
+```{bash, eval=F}
+#!/bin/bash
+#SBATCH --job-name=sruber_readcounts
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=10 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=24:00:00 #48 hrs is the max
+#SBATCH --mem=32G # a value of 0 here will allocate all available memory
+#SBATCH --partition singleGPU
+
+#load environment
+module load miniconda3
+module load python
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+#run python script
+
+python parse_manysams_2.py
+
+#FIN
+```
+
+OOH OKAY SO BIG UPDATE, the genome file I downloaded was the wrong one --it was the assembly of both the chromosomes, it didn't have the orfs! I need to download the datasets with the ncbi datasets package. I made a conda environment for ncbi datasets following these instructions, then used the following commands to get the full s. ruber dataset for the genome I wanted: 
+https://www.ncbi.nlm.nih.gov/datasets/docs/v2/download-and-install/
+
+```{bash, eval=F}
+datasets download genome accession GCF_000013045.1 --include gff3,rna,cds,protein,genome,seq-report --filename GCF_000013045.1.zip
+```
+
+The file I need is the cds that has each gene, and then the annotation Jeff gave me maps cds to their annotations!
+Rerunning the read mapping process:
+```{bash, eval=F}
+#index the cds file
+bwa index cds_from_genomic.fna
+
+
+##align reads to cds with bwa
+
+#!/bin/bash
+#SBATCH --job-name=sruber_alignment_cds
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=24:00:00 #48 hrs is the max
+#SBATCH --mem=300G # a value of 0 here will allocate all available memory
+#SBATCH --partition bigmem-1TB
+
+#load environment
+module load miniconda3
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+while read -r line; do
+
+bwa mem -t 24 /users/mweng/xena-scratch/sbsw_ruber/ncbi_dataset/data/GCF_000013045.1/cds_from_genomic.fna ${line}_R1_001.qc.fastq.gz ${line}_R2_001.qc.fastq.gz > cds_alignment/${line}.sam
+
+gzip cds_alignment/${line}.sam
+
+done<sruber_filepath.txt
+
+```
+
+When s. ruber reads were aligned to CDS, only 15% of the data aligned! This is really low, so for a sanity check I am aligning the CDS to the full assembly. 
+
+```{bash, eval=F}
+bwa mem -t 4 /users/mweng/xena-scratch/sbsw_ruber/full_assembly/GCF_000013045.1_ASM1304v1_genomic.fna.gz /users/mweng/xena-scratch/sbsw_ruber/ncbi_dataset/data/GCF_000013045.1/cds_from_genomic.fna  > cds_to_assembly.sam
+
+#100% of reads (2981 genes) mapped according to samtools flagstat!
+```
+
+Mapping to s. ruber rRNA genes (5S, 23S, 16S) to determine the ribosomal coverage of samples
+
+To do this, I curated a list of S. ruber rRNA genes from both the cds file and from searching for those genes on BLAST (I think those genes came from a different strain on BLAST so may be slightly different)
+```{bash, eval=F}
+#test one sample with bbmap
+
+bbmap.sh in=220802_1900_RNA_A_S51_L002_R1_001.qc.fasta.gz out=mapped_rna.sam ref=sruber_rRNAgenes.fa
+
+#use samtools flagstat to get coverage stats
+
+#write quick loop to do this for all samples
+#this will list all files in a directory, then cut off the file extension and pipe to a new text file!
+
+ls *.qc.fastq.gz | cut -f 1 -d "." > all_fastq_files.txt
+
+
+#first turn fastq to fasta
+
+#!/bin/bash
+#SBATCH --job-name=seqmagick
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=12:00:00 #48 hrs is the max
+#SBATCH --mem=32G # a value of 0 here will allocate all available memory
+#SBATCH --partition singleGPU
+
+#load environment
+module load miniconda3
+module load python
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+#convert files
+while read -r line; do 
+seqmagick convert ${line}.qc.fastq.gz ${line}.qc.fasta.gz
+done<all_fastq_files.txt
+
+#FIN#
+
+```
+
+Map reads from all samples to ribosomal genes:
+```{r}
+#!/bin/bash
+#SBATCH --job-name=bbmap
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL --mail-user=mw1144@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32 # Max is 64 cores (32 hyper threaded processors)
+#SBATCH --time=12:00:00 #48 hrs is the max
+#SBATCH --mem=300G # a value of 0 here will allocate all available memory
+#SBATCH --partition bigmem-1TB
+
+#load environment
+module load miniconda3
+module load python
+conda init bash
+source ~/.bashrc
+conda activate sbsw
+
+#map to ribosomal genes
+while read -r line; do
+bbmap.sh in1=${line}_R1_001.qc.fasta.gz in2=${line}_R2_001.qc.fasta.gz out=${line}_mapped_rna.sam ref=sruber_rRNAgenes.fa
+done<filenames.txt
+
+#then determined how much mapped with samtools flagstat
+```
+So, it looks like the majority of reads map to ribosomal genes -- this is not surprising, but just means the ribodepletion did not work!
+Onward to analysis...
+
+#Load data 
+
+```{r}
+#load packages and plot stuff
+library(tidyverse)
+library(DESeq2)
+library(wesanderson)
+library(WGCNA)
+
+plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
+darjeeling10 <-c(wes_palette("Darjeeling1"),wes_palette("Darjeeling2"))
+
+#load data
+counts <-read_csv("sruber_cds_alignment/allprotcounts.csv") 
+annotation <-read_csv("sruber_cds_alignment/GCF_000013045.1_ASM1304v1.annotation.csv") 
+full <- left_join(annotation, counts, by="gene_id")
+metadata <-read_csv("sruber_cds_alignment/sruber_metadata.csv")
+
+#time to run deseq2!
+deseq_counts <-as.data.frame(counts)
+row.names(deseq_counts)<-deseq_counts$gene_id
+deseq_counts$gene_id <-NULL
+deseq_counts[is.na(deseq_counts)] <-0
+
+dds <-DESeqDataSetFromMatrix(countData=deseq_counts,
+                             colData=metadata,
+                             design=~time + light)
+
+
+#exploratory analysis to look at differences between samples
+#variance stabilizing transformation of count data
+vsd <-vst(dds, blind=FALSE)
+plotPCA(vsd, intgroup=c("time", "light")) + scale_color_manual(values=darjeeling10)
+#results look similar to what Cyprien got, a good sign!
+
+
+#get the normalized count data for later analysis and save
+dds <-estimateSizeFactors(dds)
+normalized_counts <-counts(dds, normalized=TRUE)
+normalized_counts <-as.data.frame(normalized_counts)
+normalized_counts$gene_id <-rownames(normalized_counts)
+save(normalized_counts, file="sruber_normalized_counts.Rdata")
+```
+
+Cyprien's analysis:
+
+```{r}
+#create deseq2 matrices
+model1<-model.matrix(~light+time, colData(dds))
+model0_light <- model.matrix(~time,colData(dds))
+model0_time <- model.matrix(~light,colData(dds))
+
+#using the LRT test to look for differences between light controlling for time and time controlling for light (what Cyprien did)
+
+#test for light
+dds_lrt_light <-DESeq(dds, full=model1, test="LRT", reduced=model0_light)
+res_light <-results(dds_lrt_light, contrast=c(0,1,0))
+res_light.df <- data.frame(res_light@listData)
+res_light.df$gene_id <- res_light@rownames
+res_light.df <-left_join(res_light.df, annotation, by="gene_id")
+
+
+#test for time
+dds_lrt_time <- DESeq(dds, full=model1, test="LRT", reduced = model0_time) 
+res_time<-results(dds_lrt_time, contrast=c(0,0,1))
+res_time.df <- data.frame(res_time@listData)
+res_time.df$gene_id <- res_time@rownames
+res_time.df<-left_join(res_time.df, annotation, by="gene_id")
+
+res_time.df %>% filter(padj<=0.05)
+
+```
+
+
+My way to make sure I understand it:
+
+```{r}
+dds_light <- DESeq(dds, full=~time + light, test="LRT", reduced=~time)
+res_light <- results(dds_light)
+head(res_light)
+light_df <-data.frame(res_light@listData)
+light_df$gene_id <-res_light@rownames
+light_df <-left_join(light_df, annotation, by="gene_id")
+save(light_df, file="sruber_light_deseq.Rdata")
+
+#it's the same result as cyprien's, but without the binary numbers so I can better understand what's being contrasted! I will use this way 
+
+dds_time <-DESeq(dds, full=~time + light, test="LRT", reduced=~light)
+res_time <- results(dds_time)
+head(res_time)
+time_df <-data.frame(res_time@listData)
+time_df$gene_id <-res_time@rownames
+time_df <-left_join(time_df, annotation, by="gene_id")
+save(time_df, file="sruber_time_deseq.Rdata")
+```
+
+#looking at genes of interest from SBSW and Cyprien's thesis
+
+#look at significantly differentially expressed genes and create volcano plots
+
+```{r}
+siglight <-light_df %>% filter(padj<=0.05)
+sigtime <-time_df %>% filter(padj<=0.05)
+
+#volcano plots
+
+#light
+light_df$diffex <- "padj > 0.05"
+light_df$diffex[light_df$padj < 0.05] <- "padj < 0.05"
+light_df$diffex[light_df$padj < 0.01] <- "padj < 0.01"
+ggplot(light_df, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) +
+  plot_theme
+
+
+#time
+time_df$diffex <- "padj > 0.05"
+time_df$diffex[time_df$padj < 0.05] <- "padj < 0.05"
+time_df$diffex[time_df$padj < 0.01] <- "padj < 0.01"
+ggplot(time_df, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black")) +
+  plot_theme
+```
+
+
+#superoxide dismutase
+gene id: NC_007677.1_WP_011404468.1
+
+```{r}
+
+normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404468.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample")
+
+
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404468.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample"), aes(x=date_time, y=value)) + geom_boxplot() + plot_theme
+
+```
+
+#photo-lyase UV damage repair genes
+
+```{r}
+normalized_counts <-left_join(normalized_counts, annotation, by="gene_id")
+#first look at photo-lyase genes that have positive LFC with regard to light
+
+photo <- normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404498.1", "NC_007677.1_WP_011405051.1", "NC_007677.1_WP_011404766.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample")
+
+photo_summary <- photo %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id")
+
+#line plot with error bars
+ggplot(photo_summary, aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+
+#the photo-lyase gene with negative LFC with regard to light
+
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011403840.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+```
+
+#DNA repair
+NC_007677.1_WP_011405212.1
+NC_007677.1_WP_013062547.1
+
+```{r}
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011405212.1", "NC_007677.1_WP_013062547.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+
+```
+
+#glycerol kinase
+
+```{r}
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404221.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+
+#boxplot
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404221.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample"), aes(x=date_time, y=value)) + geom_boxplot() + plot_theme
+```
+
+#SUF genes
+NC_007677.1_WP_112903937.1
+NC_007677.1_WP_112903941.1
+NC_007677.1_WP_011404138.1
+NC_007677.1_WP_011404137.1
+NC_007677.1_WP_011404135.1
+
+```{r}
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_112903937.1", "NC_007677.1_WP_112903941.1", "NC_007677.1_WP_011404138.1", "NC_007677.1_WP_011404137.1", "NC_007677.1_WP_011404135.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+```
+
+
+#TCA cycle genes
+
+```{r}
+tca <-light_df %>%filter(product %in% c("socitrate dehydrogenase (NADP(+))", "aconitate hydratase", "aconitate hydratase AcnA", "malate dehydrogenase", "citrate synthase", "succinate dehydrogenase flavoprotein subunit", "succinate dehydrogenase iron-sulfur subunit", "succinate dehydrogenase, cytochrome b556 subunit", "succinate dehydrogenase hydrophobic membrane anchor subunit"))
+
+ggplot(normalized_counts %>% filter(gene_id %in% tca$gene_id) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+```
+
+
+Oxidative phosphorylation:
+
+```{r}
+#ATP synthase
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_237701963.1", "NC_007677.1_WP_011403674.1", "NC_007677.1_WP_011403677.1","NC_007677.1_WP_011405146.1
+", "NC_007677.1_WP_011403676.1", "NC_007677.1_WP_043552096.1", "NC_007677.1_WP_011405147.1", "NC_007677.1_WP_011403678.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+#cytochrome c oxidase
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404827.1", "NC_007677.1_WP_011404826.1", "NC_007677.1_WP_011404828.1", "NC_007677.1_WP_011404825.1
+", "NC_007677.1_WP_011403092.1", "NC_007677.1_WP_011403102.1", "NC_007677.1_WP_011403101.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+#NADH-quinone oxidoreductase
+
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011403172.1", "NC_007677.1_WP_011403173.1", "NC_007677.1_WP_011403171.1", "NC_007677.1_WP_011404195.1", "NC_007677.1_WP_112902993.1", "NC_007677.1_WP_103015646.1", "NC_007677.1_WP_011404198.1
+", "NC_007677.1_WP_164923574.1", "NC_007677.1_WP_011404438.1
+", "NC_007677.1_WP_013061937.1", "NC_007677.1_WP_011404194.1", "NC_007677.1_WP_043552781.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+#NADH dehydrogenase
+
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404786.1", "NC_007677.1_WP_011403174.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+
+#bacteriorhodopsins
+
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404249.1", "NC_007677.1_WP_011405484.1", "NC_007677.1_WP_011405223.1", "NC_007677.1_WP_011405291.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+
+```
+
+
+
+#WGCNA
+Run WGCNA to create gene modules for s. ruber? It's probably a more valid analysis method for cultures than for environmental data!
+
+NEED TO USE THE NORMALIZED COUNT DATA (I think raw couunts is throwing everything off)
+
+```{r}
+library(WGCNA)
+
+#format the data properly
+wgcna_counts <-t(normalized_counts)
+wgcna_counts <-as.data.frame(wgcna_counts)
+colnames(wgcna_counts) <-normalized_counts$gene_id
+wgcna_counts <- wgcna_counts[-17,]
+wgcna_counts <- wgcna_counts %>% mutate_all(as.numeric)
+
+#format metadata so samples are rownames
+wgcna_metadata <-as.data.frame(metadata)
+rownames(wgcna_metadata) <-wgcna_metadata$sample
+wgcna_metadata$sample <-NULL
+wgcna_metadata <- wgcna_metadata[,-c(1:4)]
+```
+
+Run WGCNA!
+
+```{r}
+#test for genes/samples missing too many values
+gsg <-goodSamplesGenes(wgcna_counts, verbose=3)
+gsg$allOK
+
+#next cluster the samples to see if any samples are outliers
+sampleTree = hclust(dist(wgcna_counts), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+sizeGrWindow(12,9)
+#pdf(file = "Plots/sampleClustering.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5,
+cex.axis = 1.5, cex.main = 2)
+#no outliers!
+#set variables for network correlation analysis
+nGenes = ncol(wgcna_counts)
+nSamples = nrow(wgcna_counts) #use this for network correlation analysis
+
+#visualize how metadata relates to samples in this bin--this part is confusing
+sampleTree2=hclust(dist(wgcna_counts), method="average")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(as.numeric(metadata$date_time), signed = FALSE);
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors,
+groupLabels = names(wgcna_metadata),
+main = "Sample dendrogram and trait heatmap")
+```
+
+#one-step module detection
+
+```{r}
+# Choose a set of soft-thresholding powers
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+# Call the network topology analysis function
+sft = pickSoftThreshold(wgcna_counts, powerVector = powers)
+# Plot the results:
+sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+labels=powers,cex=cex1,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.80,col="red")
+#pick power=6 for roughly 0.8 fit!
+
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+```
+
+```{r}
+#one step module detection
+
+net = blockwiseModules(wgcna_counts, power = 6,
+TOMType = "signed", networkType="signed", minModuleSize = 30,
+reassignThreshold = 0, mergeCutHeight = 0.25,
+numericLabels = TRUE, pamRespectsDendro = FALSE,
+saveTOMs = TRUE,
+saveTOMFileBase = "sruber_TOM",
+verbose = 3)
+
+#how many modules were detected?
+#0 is always reserved for genes outside of all modules
+table(net$colors)
+
+# open a graphics window
+sizeGrWindow(12, 9)
+# Convert labels to colors for plotting
+mergedColors = labels2colors(net$colors)
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[1]], mergedColors[net$blockGenes[[1]]],
+"Module colors",
+dendroLabels = FALSE, hang = 0.03,
+addGuide = TRUE, guideHang = 0.05)
+
+#save the data for future analysis
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]];
+save(MEs, moduleLabels, moduleColors, geneTree,
+file = "sruber_onestep_modules.RData")
+
+```
+
+
+#connecting modules to metadata
+```{r}
+
+# Define numbers of genes and samples
+nGenes = ncol(wgcna_counts);
+nSamples = nrow(wgcna_counts);
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(wgcna_counts, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, wgcna_metadata, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+
+#make plot 
+sizeGrWindow(10,6)
+# Will display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+xLabels = names(wgcna_metadata),
+yLabels = names(MEs),
+ySymbols = names(MEs),
+colorLabels = FALSE,
+colors = blueWhiteRed(50),
+textMatrix = textMatrix,
+setStdMargins = FALSE,
+cex.text = 0.5,
+zlim = c(-1,1),
+main = paste("Module-trait relationships"))
+
+```
+
+Connecting genes to their module membership and making dataframe of MEs
+
+```{r}
+
+#calculate module membership and significance for light 
+#looking at the correlation of genes in a module with a variable of interest
+# Define variable of interest from the metadata 
+light <- as.data.frame(wgcna_metadata$light_num);
+names(light) = "light"
+# names (colors) of the modules
+modNames = substring(names(MEs), 3)
+#gene significance (GS)=the absolute value of correlation between gene and trait of interest. Module membership (MM) is the correlation of the module eigengene and the gene expression profile to quantify the similarity of all genes to each module 
+
+geneModuleMembership = as.data.frame(cor(wgcna_counts, MEs, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples));
+names(geneModuleMembership) = paste("MM", modNames, sep="");
+names(MMPvalue) = paste("p.MM", modNames, sep="");
+
+geneModuleMembership$gene_id <-rownames(geneModuleMembership)
+
+geneTraitSignificance = as.data.frame(cor(wgcna_counts, light, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+names(geneTraitSignificance) = paste("GS.", names(light), sep="");
+names(GSPvalue) = paste("p.GS.", names(light), sep="");
+
+#Visualizing gene significance within a module of interest
+
+module = "turquoise"
+column = match(module, modNames);
+moduleGenes = moduleColors==module;
+sizeGrWindow(7, 7);
+par(mfrow = c(1,1));
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+abs(geneTraitSignificance[moduleGenes, 1]),
+xlab = paste("Module Membership in", module, "module"),
+ylab = "Gene significance for light",
+main = paste("Module membership vs. gene significance\n"),
+cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module)
+
+
+# Create the starting data frame
+ 
+genes <-names(wgcna_counts)
+
+geneInfo <- data.frame(gene_id = genes,
+moduleColor = moduleColors,
+geneTraitSignificance,
+GSPvalue)
+
+write.csv(geneInfo, file = "sruber_genes_to_modules.csv")
+
+write_csv(geneModuleMembership, "sruber_module_membership.csv")
+
+
+modOrder = order(-abs(cor(MEs, light, use = "p")));
+# Add module membership information in the chosen order
+for (mod in 1:ncol(geneModuleMembership))
+{
+oldNames = names(geneInfo)
+geneInfo = data.frame(geneInfo, geneModuleMembership[, modOrder[mod]],
+MMPvalue[, modOrder[mod]]);
+names(geneInfo) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+# Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+geneOrder = order(geneInfo$moduleColor, -abs(geneInfo$GS.light));
+fullgenes = geneInfo[geneOrder, ]
+
+save(fullgenes, file="sruber_module_membership.Rdata")
+
+#recalculate MEs
+MEs=moduleEigengenes(wgcna_counts, moduleColors)$eigengenes
+
+#save as csv
+write.csv(MEs, "sruber_module_eigengenes.csv")
+```
+
+Turquoise module alone:
+
+```{r}
+turquoise <- geneInfo %>% filter(moduleColor=="turquoise") %>% left_join(., geneModuleMembership[,c(7,14)], by="gene_id")
+
+write_csv(turquoise, "turquoise_module.csv")
+```
+
+Creating a lineplot of MEs to visualize trends:
+
+```{r}
+#create dataframe for plot
+eigenplot <-mutate(MEs, time=metadata$time, light=metadata$light, date=metadata$date_time)
+
+eigenplot <-eigenplot %>%pivot_longer(cols=starts_with("ME"), names_to="ME", values_to="expression_profile")
+
+#calculate mean and standard deviation for each ME for each timepoint 
+eigenplot_summary <- eigenplot %>% group_by(date, ME) %>% summarise(MEmean=mean(expression_profile), MEsd=sd(expression_profile))
+
+
+write.csv(eigenplot_summary, "sruber_eigenplot_summary.csv")
+
+#define colors for MEs
+MEcolors <-c("black", "blue", "chocolate4", "green4", "chartreuse", "gray81", "mediumvioletred", "pink", "darkorchid", "red", "tan", "turquoise", "gold")
+
+#line plot with error bars
+ggplot(eigenplot_summary, aes(x=date, y=MEmean, group=ME, color=ME)) +
+  geom_errorbar(aes(ymin=MEmean-MEsd, ymax=MEmean+MEsd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(size=1.5) +
+  geom_point() +
+  scale_color_manual(values=MEcolors)
+
+#divide into light vs dark, separate those going up in the dark
+
+dark_colors <-c("mediumvioletred", "pink", "turquoise")
+
+light_colors <-c("black", "chocolate4", "darkorchid", "tan")
+
+other_colors <-c("blue", "green4", "chartreuse", "gray81", "red", "gold")
+
+#line plot just the upregulated at night modules
+night <-eigenplot_summary %>% filter(ME %in% c("MEmagenta", "MEpink", "MEturquoise"))
+
+
+ggplot(night, aes(x=date, y=MEmean, group=ME, color=ME)) +
+  geom_errorbar(aes(ymin=MEmean-MEsd, ymax=MEmean+MEsd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(size=1.5) +
+  geom_point() +
+  scale_color_manual(values=dark_colors) +
+  plot_theme
+
+
+#line plot for day modules 
+day <-eigenplot_summary %>% filter(ME %in% c("MEblack", "MEbrown", "MEpurple", "MEtan"))
+
+ggplot(day, aes(x=date, y=MEmean, group=ME, color=ME)) +
+  geom_errorbar(aes(ymin=MEmean-MEsd, ymax=MEmean+MEsd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(size=1.5) +
+  geom_point() +
+  scale_color_manual(values=light_colors) +
+  plot_theme
+
+other <-eigenplot_summary %>% filter(ME %in% c("MEblue", "MEgreen", "MEgreenyellow", "MEgray", "MEred", "MEyellow"))
+
+ggplot(other, aes(x=date, y=MEmean, group=ME, color=ME)) +
+  geom_errorbar(aes(ymin=MEmean-MEsd, ymax=MEmean+MEsd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(size=1.5) +
+  geom_point() +
+  scale_color_manual(values=other_colors) +
+  plot_theme
+
+```
+
+Now, let's see what module sod is in!!
+
+```{r}
+geneInfo <-read_csv("sruber_genes_to_modules.csv") %>% select(-1)
+geneModuleMembership<-read_csv("sruber_module_membership.csv")
+
+geneInfo <-geneInfo %>% rename(gene_id=position)
+module_light <-left_join(geneInfo, light_df, by="gene_id")
+
+turquoise <-module_light %>% filter(moduleColor=="turquoise")
+turquoise <-left_join(turquoise, fullgenes[,c(1,3,4,7,8)], by="gene_id")
+
+pink <-module_light %>% filter(moduleColor=="pink")
+```
+
+Metals seem to be a theme?
+plastocyanin/azurin family copper-binding protein
+polyhydroxyalkanoic acid system family protein
+iron-sulfur cluster assembly accessory protein
+metal-dependent transcriptional regulator
+helical backbone metal receptor
+isocitrate dehydrogenase (NADP(+))
+TetR/AcrR family transcriptional regulator
+polyhydroxyalkanoate synthesis regulator DNA-binding
+ATP-dependent zinc metalloprotease FtsH
+cytochrome c biogenesis protein CcsA
+
+
+#getting a less complicated dataframe
+
+```{r}
+modules <-read_csv("sruber_genes_to_modules.csv")
+genes_with_module <-left_join(modules, annotation, by="gene_id")
+
+write_csv(genes_with_module, "sruber_genes_modulecolor.csv")
+
+brown <-genes_with_module %>% filter(moduleColor=="brown")
+```
+
+
+#exporting the turquoise module to cytoscape
+
+```{r}
+#Recaulcuate topological overlap
+
+TOM = TOMsimilarityFromExpr(wgcna_counts, power = 6);
+#make sure gene annotation file is loaded as "annotation"
+
+# Select modules
+module = "turquoise"
+# Select module probes
+probes = names(wgcna_counts)
+inModule = (moduleColors==module);
+modProbes = probes[inModule];
+modGenes = annotation$product[match(modProbes, annotation$gene_id)];
+
+# Select the corresponding Topological Overlap
+modTOM = TOM[inModule, inModule];
+dimnames(modTOM) = list(modProbes, modProbes)
+# Export the network into edge and node list files Cytoscape can read
+cyt = exportNetworkToCytoscape(modTOM,
+edgeFile = paste("CytoscapeInput-edges-", paste(module, collapse="-"), ".txt", sep=""),
+nodeFile = paste("CytoscapeInput-nodes-", paste(module, collapse="-"), ".txt", sep=""),
+weighted = TRUE,
+threshold = 0.02,
+nodeNames = modProbes,
+altNodeNames = modGenes,
+nodeAttr = moduleColors[inModule]);
+
+save(cyt, file="cytoscape_list_files.Rdata")
+```
+
+Adding more information to the node file in cytoscape:
+
+```{r}
+nodes <-as.data.frame((cyt[["nodeData"]]))
+
+nodesPlus <-rename(nodes, gene_id = nodeName) %>% left_join(., light_df[,c(1,2,6,7)], by="gene_id") %>% left_join(., turquoise, by="gene_id") %>% rename(., nodeName=gene_id)
+
+write_tsv(nodesPlus, "cytoscape_nodes_moreinfo.txt")
+```
+
+
+#Connecting sruber cds annotations to KO information and categories
+First thing we need to clarify is whether S ruber was strain M8 or M31? I have been working with strain M31 for this analysis. 
+
+To retrieve genome info about which KOs are in the genome, search the Kegg Genomes (ie google "KEGG genomes salinibacter ruber M31"). Then click on the T number. This will show a page that lists KEGG pathways, KEGG modules, and KEGG genes, which are all clickable. Clicking the KEGG genes link gives you a page of all the genes in Salinibacter ruber and their corresponding KO numbers. 
+```{r}
+
+```
+

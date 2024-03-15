@@ -146,9 +146,9 @@ darjeeling10 <-c(wes_palette("Darjeeling1"),wes_palette("Darjeeling2"))
 
 #load data
 counts <-read_csv("sruber_cds_alignment/allprotcounts.csv") 
-annotation <-read_csv("sruber_cds_alignment/GCF_000013045.1_ASM1304v1.annotation.csv") 
+annotation <-read_csv("../sruber_cds_alignment/GCF_000013045.1_ASM1304v1.annotation.csv") %>% rename(gene_id=...1)
 full <- left_join(annotation, counts, by="gene_id")
-metadata <-read_csv("sruber_cds_alignment/sruber_metadata.csv")
+metadata <-read_csv("sruber_metadata.csv")
 
 #time to run deseq2!
 deseq_counts <-as.data.frame(counts)
@@ -518,5 +518,188 @@ Conditions for building cytoscape visualization:
 -p-value for light diff expression < 0.05
 -interaction includes superoxide dismutase
 -interaction strength (weight) >0.28
+
+#Plotting genes of interest in S. ruber
+
+
+#superoxide dismutase
+gene id: NC_007677.1_WP_011404468.1
+
+```{r}
+
+normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404468.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample")
+
+#boxplot
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404468.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample"), aes(x=date_time, y=value)) + geom_boxplot() + plot_theme
+
+#lineplot
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404468.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id)) +
+  geom_ribbon(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+  
+
+normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404468.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id")
+```
+test
+```{r}
+
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_081580696.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id)) +
+  geom_ribbon(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#photo-lyase UV damage repair genes
+
+```{r}
+normalized_counts <-left_join(normalized_counts, annotation, by="gene_id")
+#first look at photo-lyase genes that have positive LFC with regard to light
+
+photo <- normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404498.1", "NC_007677.1_WP_011405051.1", "NC_007677.1_WP_011404766.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample")
+
+photo_summary <- photo %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id")
+
+#line plot with error bars
+ggplot(photo_summary, aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+
+#the photo-lyase gene with negative LFC with regard to light
+
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011403840.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+```
+
+#DNA repair
+NC_007677.1_WP_011405212.1
+NC_007677.1_WP_013062547.1
+
+```{r}
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011405212.1", "NC_007677.1_WP_013062547.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+
+```
+
+#glycerol kinase
+
+```{r}
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404221.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme
+
+
+#boxplot
+ggplot(normalized_counts %>% filter(gene_id=="NC_007677.1_WP_011404221.1") %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample"), aes(x=date_time, y=value)) + geom_boxplot() + plot_theme
+```
+
+#SUF genes
+NC_007677.1_WP_112903937.1
+NC_007677.1_WP_112903941.1
+NC_007677.1_WP_011404138.1
+NC_007677.1_WP_011404137.1
+NC_007677.1_WP_011404135.1
+
+```{r}
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_112903937.1", "NC_007677.1_WP_112903941.1", "NC_007677.1_WP_011404138.1", "NC_007677.1_WP_011404137.1", "NC_007677.1_WP_011404135.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+```
+
+
+#TCA cycle genes
+
+```{r}
+tca <-light_df %>%filter(product %in% c("socitrate dehydrogenase (NADP(+))", "aconitate hydratase", "aconitate hydratase AcnA", "malate dehydrogenase", "citrate synthase", "succinate dehydrogenase flavoprotein subunit", "succinate dehydrogenase iron-sulfur subunit", "succinate dehydrogenase, cytochrome b556 subunit", "succinate dehydrogenase hydrophobic membrane anchor subunit"))
+
+ggplot(normalized_counts %>% filter(gene_id %in% tca$gene_id) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+```
+
+
+Oxidative phosphorylation:
+
+```{r}
+#ATP synthase
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_237701963.1", "NC_007677.1_WP_011403674.1", "NC_007677.1_WP_011403677.1","NC_007677.1_WP_011405146.1
+", "NC_007677.1_WP_011403676.1", "NC_007677.1_WP_043552096.1", "NC_007677.1_WP_011405147.1", "NC_007677.1_WP_011403678.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+#cytochrome c oxidase
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404827.1", "NC_007677.1_WP_011404826.1", "NC_007677.1_WP_011404828.1", "NC_007677.1_WP_011404825.1
+", "NC_007677.1_WP_011403092.1", "NC_007677.1_WP_011403102.1", "NC_007677.1_WP_011403101.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+#NADH-quinone oxidoreductase
+
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011403172.1", "NC_007677.1_WP_011403173.1", "NC_007677.1_WP_011403171.1", "NC_007677.1_WP_011404195.1", "NC_007677.1_WP_112902993.1", "NC_007677.1_WP_103015646.1", "NC_007677.1_WP_011404198.1
+", "NC_007677.1_WP_164923574.1", "NC_007677.1_WP_011404438.1
+", "NC_007677.1_WP_013061937.1", "NC_007677.1_WP_011404194.1", "NC_007677.1_WP_043552781.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+#NADH dehydrogenase
+
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404786.1", "NC_007677.1_WP_011403174.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+
+#bacteriorhodopsins
+
+ggplot(normalized_counts %>% filter(gene_id %in% c("NC_007677.1_WP_011404249.1", "NC_007677.1_WP_011405484.1", "NC_007677.1_WP_011405223.1", "NC_007677.1_WP_011405291.1")) %>% pivot_longer(c(1:16), names_to="sample") %>% left_join(., metadata, by="sample") %>% group_by(date_time, gene_id) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(annotation, by="gene_id"), aes(x=date_time, y=expression_mean, group=gene_id, color=product)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=product)) +
+  geom_point(aes(color=product)) +
+  plot_theme +
+  scale_color_manual(values=darjeeling10)
+
+
+```
+
+
+
+```{r}
+
+```
 
 
