@@ -27,7 +27,7 @@ mt_tally <-read_csv("../current_data/mt_tally_v2.csv") #raw data from bwa
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv") #metadata
 master_tax <-read_csv("../current_data/master_genes_taxonomy_gtdbtk_blocked.csv") %>% select(-"...1")
 diffex_tax <-master_tax %>% filter(padj <0.05)
-normalized_counts <-read_csv("../current_data/normalized_mt_tally_v2_genes.csv")
+unormalized_counts <-read_csv("../current_data/normalized_mt_tally_v2_genes.csv")
 corrected_counts <-read_csv("../current_data/limma_corrected_counts.csv")
 
 #load visuals
@@ -1037,5 +1037,15 @@ Sum the counts per bin across all replicates
 avg_total <-total_counts_sample %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time) %>% summarize(total_counts_timepoint=sum(`colSums(normalized_counts[, c(1:36)])`))
 ```
 
+#Creating Supplemental Table of stats for SBSW bins included in MT analysis
+
+```{r}
+bins <-read_csv("sbsw_bins.csv")
+all_genomes <-read_csv("../sbsw_bins_summary.csv")
+
+sbsw_bins_stats <-all_genomes %>% filter(genome %in% bins$bin)
+
+write_csv(sbsw_bins_stats, "sbsw_bins_stats.csv")
+```
 
 
