@@ -1046,6 +1046,15 @@ all_genomes <-read_csv("../sbsw_bins_summary.csv")
 sbsw_bins_stats <-all_genomes %>% filter(genome %in% bins$bin)
 
 write_csv(sbsw_bins_stats, "sbsw_bins_stats.csv")
+
+genes_per_bin <- master_tax %>%group_by(bin) %>% summarize(count=n()) 
+write_csv(genes_per_bin, "genes_per_bin.csv")
+
+diffex_genes_bin <-diffex_tax %>% group_by(bin) %>% summarize(count=n())
+
+write_csv(diffex_genes_bin, "diffex_genes_bin.csv")
+#add number of genes and diffex genes in dataset
+
 ```
 
 
