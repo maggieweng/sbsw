@@ -262,6 +262,11 @@ done<filenames.txt
 So, it looks like the majority of reads map to ribosomal genes -- this is not surprising, but just means the ribodepletion did not work!
 Onward to analysis...
 
+Updates 4/10/24:
+Note here: the samfiles are massive, so I am deleting them in order to save space on the cluster. I am keeping the text files that summarize the percentage of mapped reads to ribosomal RNA sequences in the samfiles. If need be, these can be regenerated. 
+Data (raw/qc'd sequence reads for s. ruber, samfiles for s.ruber and SBSW) is being moved from the cluster to MW's backup drive to increase storage space
+Jeff Bowman has access to the raw SBSW MT fastq files and will be uploading to NCBI from his end. I believe I am no longer in possession of these files since I lost access to the fram server. 
+
 #Load data 
 
 ```{r}
