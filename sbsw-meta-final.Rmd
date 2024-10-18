@@ -289,7 +289,7 @@ plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 
 darjeeling10 <-c(wes_palette("Darjeeling1"),wes_palette("Darjeeling2"))
 
 #data
-master_tax <-read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/blocked/master_genes_taxonomy_gtdbtk_blocked.csv")
+master_tax <-read_csv("../current_data/master_genes_taxonomy_gtdbtk_blocked.csv")
 diffex_tax <-read_csv("diffex_tax_blocked.csv")
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
 normalized_counts <- read_csv("/Users/maggieweng 1/Desktop/Georgetown/Research/SBSW/mt_data_v2/normalized_mt_tally_v2_genes.csv")
