@@ -27,7 +27,7 @@ mt_tally <-read_csv("../current_data/mt_tally_v2.csv") #raw data from bwa
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv") #metadata
 master_tax <-read_csv("../current_data/master_genes_taxonomy_gtdbtk_blocked.csv") %>% select(-"...1")
 diffex_tax <-master_tax %>% filter(padj <0.05)
-unormalized_counts <-read_csv("../current_data/normalized_mt_tally_v2_genes.csv")
+normalized_counts <-read_csv("../current_data/normalized_mt_tally_v2_genes.csv")
 corrected_counts <-read_csv("../current_data/limma_corrected_counts.csv")
 
 #load visuals
