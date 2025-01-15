@@ -118,19 +118,29 @@ metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
 
 #correcting for a batch effect from two different rounds of RNA extractions
 
-#install and load packages
 ```{r}
-BiocManager::install("limma")
+
+#load packages
 library(limma)
-library(tidyverse)
+library(DESeq2)
+library(wesanderson)
+library(vegan)
+
+#aesthetics
+
+plot_theme <- theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5), axis.text = element_text(color = "black"))
+
+wes_palette_27 <-c(wes_palette("Cavalcanti1"), wes_palette("GrandBudapest1"), wes_palette("Moonrise3"), wes_palette("GrandBudapest2"), wes_palette("IsleofDogs1"), wes_palette("Darjeeling1"))
+
+
 ```
 
 #Load data
 ```{r}
 
-mt_tally <-read_csv("../mt_data_v2/mt_tally_v2.csv") #non-normalized transcript counts
+mt_tally <-read_csv("../current_data/mt_tally_v2.csv") #non-normalized transcript counts
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
-normalized_counts <- read_csv("../mt_data_v2/normalized_mt_tally_v2_genes.csv")
+normalized_counts <- read_csv("../current_data/normalized_mt_tally_v2_genes.csv")
 
 #create matrix from mt_tally and call this mt_raw
 mt_raw <- mt_tally[,c(1, 5:40)]
@@ -190,23 +200,53 @@ sampleDists <- dist(t(assay(vsd)))
 sampleDistMatrix <- as.matrix(sampleDists)
 
 #using adonis
-adonis(sampleDistMatrix ~ timecount_norm + extraction_batch, data=metadata_norm_v2, permutations=999)
+adonis2(sampleDistMatrix ~ timecount_norm + extraction_batch, data=metadata_norm_v2, permutations=999, by="terms")
 ```
 
 The batch effects are no longer statistically significant!
 
 Limma has shown that we can correct for batch effects. Now DESeq2 will remove them internally if they are included in the design. We do NOT use the limma data for DESeq2, just the raw count matrix. Limma is just to prove that batch correction can be done successfully 
 
+#PCA plot of overall sample variances (Figure 4b)
+
+See the following explanation for why only the top 500 genes with greatest variance across samples were used to create PCA:
+https://support.bioconductor.org/p/51270/
+"For (i)[sample clustering via ordination], it does not make much difference whether you use all data or only highly variable genes, as genes with low variance across samples
+provide only little information on sample distances anyway and so have
+little influence on the result.
+
+For (ii)[gene clustering], it is common practice to subset to the most highly variant
+genes because *many ordination or clustering methods do not cope well
+with a matrix with thousands of rows, and the genes with low variance
+are unlikely to be part of interesting clusters anyway*."
+
+#Plotting PCA in ggplot to customize graphics:
+
+```{r}
+pcadata <- plotPCA(vsd, intgroup=c("time24", "extraction_batch", "light_condition", "time"), returnData=TRUE)
+percentVar <- round(100 * attr(pcadata, "percentVar"))
+
+ggplot(pcadata, aes(x=PC1, y=PC2)) +
+  geom_point(size=3, aes(color=time, shape=extraction_batch)) +
+  stat_ellipse(mapping=aes(linetype=light_condition)) +
+  scale_color_brewer(palette="Paired") +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  plot_theme
+  
+```
+
+
 ##Running DESeq2 differential expression analysis while correcting for batch effect in the LRT model##
 
-NOTE: tests of log fold change above or below a theshhold must be Wald tests. Therefore, I am unable to use LFCthreshold as recommended to filter for fold change above or below a certain threshold. I will need to do this on the results table. 
+NOTE: tests of log fold change above or below a theshold using the LFCthreshold function of deseq2 must be Wald tests. Therefore, I am unable to use LFCthreshold. Instead, I will conduct post-hoc filtering on the results table. 
 
 ```{r}
 
 #load data
-mt_tally <-read_csv("mt_data_v2/mt_tally_v2.csv")
+mt_tally <-read_csv("../current_data/mt_tally_v2.csv")
 metadata_norm_v2 <-read_csv("metadata_norm_v2.csv")
-normalized_counts <- read_csv("mt_data_v2/normalized_mt_tally_v2_genes.csv")
+normalized_counts <- read_csv("../current_data/normalized_mt_tally_v2_genes.csv")
 
 #get a list of all bins
 bins <-unique(mt_tally$bin)
@@ -260,12 +300,8 @@ master <-comparisons_master_df %>% left_join(.,
                                              by="position") %>%select(-"genome")
 
 
-#with LFC threshold 
-summary(res_lrt)
-res_filtered <-results(dds_lrt_time, lfcThreshold=1)
-
 write_csv(master, "master_diffex_genes_blocked.csv")
-gtdbtk_tax <-read_csv("mt_data_v2/gtdbtk_results/gtdbtk_full.csv")
+gtdbtk_tax <-read_csv("../current_data/gtdbtk_results/gtdbtk_full.csv")
 
 master_tax <-left_join(master, gtdbtk_tax[,c(1:8)], by="bin")
 write.csv(master_tax, "master_genes_taxonomy_gtdbtk_blocked.csv")
@@ -274,5 +310,505 @@ diffex_tax <-master_tax %>% filter(padj < 0.05)
 write.csv(diffex_tax, "diffex_tax_blocked.csv")
 ```
 
+##Analysis of DESeq2 results##
+
+```{r}
+#load data
+
+metadata_norm_v2 <-read_csv("metadata_norm_v2.csv") #metadata
+master_tax <-read_csv("../current_data/master_genes_taxonomy_gtdbtk_blocked.csv") %>% select(-"...1")
+normalized_counts <-read_csv("../current_data/normalized_mt_tally_v2_genes.csv") #uncorrected, un-log-transformed counts that have still been normalized by deseq2, used for Fig 5 (expression relative to mean) as log-transformed counts cannot be related to mean count
+corrected_counts <-read_csv("../current_data/limma_corrected_counts.csv") #counts with additional log transformation and batch correction from limma used in Fig 3,4
+```
+
+#MA plot of fold change vs base mean for all genes in the dataset (Figure 4a)
+
+The DESeq2 internal MA plot uses the function plotMA from geneplotter. Since we no longer have a deseq2 dataset format, I can simply use geneplotter to generate my MA plot.
+```{r}
+install.packages("geneplotter")
+library(geneplotter)
+
+master_tax <-as.data.frame(master_tax)
+master_tax$significance <-"FALSE"
+master_tax$significance[master_tax$padj < 0.05] <- "TRUE"
+master_tax$significance <-as.logical(master_tax$significance)
+
+MA_plot <-master_tax %>% select(-c(3:14))
+MA_plot <-MA_plot[,c("baseMean", "log2FoldChange", "significance")]
+plotMA(MA_plot, ylim=c(-3,3))
+
+#Alternatively, volcano plot
+
+master_tax$diffex <-"padj > 0.05"
+master_tax$diffex[master_tax$padj <0.05] <-"padj <0.05"
+master_tax$diffex[master_tax$padj < 0.01] <- "padj < 0.01"
+
+ggplot(master_tax, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_point() +
+  scale_color_manual(values=c("blue", "red", "black"))
+
+
+
+```
+
+#Instituting LFC filter as requested by reviewers
+
+Fold changes are measured by log2 fold change. Log2(1.5)=0.58, meaning that a value of 0.58 corresponds to a 1.5x fold change in expression. We will therefore use 0.58 as a cutoff for large biological change in expression. 
+
+```{r}
+diffex_tax <-master_tax %>% filter(padj <0.05 & abs(log2FoldChange) >=0.58)
+```
+
+
+#MAGs with highest number of mapped transcripts (Figure 3)
+
+```{r}
+#First look
+
+total_counts_sample <- as.data.frame(colSums(normalized_counts[,c(1:36)])) 
+total_counts_sample$sample <-rownames(total_counts_sample)
+
+counts_per_bin <- normalized_counts %>% pivot_longer(c(1:36), names_to="sample", values_to="count") %>% group_by(bin, sample) %>% summarize(counts_per_bin=sum(count))
+
+prop_counts <-left_join(counts_per_bin, total_counts_sample, by="sample") %>% mutate(percent_counts_bin=(counts_per_bin/colSums(normalized_counts[,c(1:36)]))*100)
+
+#Join to higher order taxonomic information
+sbsw_bins <-read_csv("sbsw_bins.csv") %>%select(-...1)
+
+prop_counts <-left_join(prop_counts, sbsw_bins[,c(1:8)], by="bin")
+
+prop_counts <- prop_counts %>% mutate(plot=if_else(percent_counts_bin>=0.5, bin, "Other"))
+
+
+#visualize this on a plot--transcript counts per sample and their taxonomic assignments
+
+ggplot(prop_counts, aes(x=sample, y=percent_counts_bin, fill=plot)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=wes_palette_27) +
+  plot_theme
+
+
+```
+
+BLAST-checking suspicious genes:
+
+BLAST these genes:
+NODE_1943_length_16146_cov_30.276739_pgaptmp_000182 (201005_11_DNA_2_bin.2, Rhodothermia) #16S ribosomal gene
+NODE_14322_length_5025_cov_38.148089_pgaptmp_000414 (201007_15_DNA_mat_1_top_bin.31, Halomarina) #no good matches, possibly a ribosome?
+NODE_1192_length_23858_cov_130.356636_pgaptmp_000174 (201007_15_DNA_mat_1_top_bin.45, Halobacteriales SW-7-71-33) not a ribosome
+NODE_1202_length_16857_cov_174.740507_pgaptmp_000190 (201005_12_DNA_2_bin.1, Halorubrum) not a ribosome
+(201007_15_DNA_mat_1_bottom_bin.91) NODE_2703_length_14133_cov_19.928612_pgaptmp_000886: ribosomal RNA gene
+(201007_15_DNA_mat_1_top_bin.28) NODE_2592_length_15826_cov_20.447657_pgaptmp_001303: not a ribosome
+(201005_12_DNA_2_bin.48) NODE_1402_length_15400_cov_162.203584_pgaptmp_000417: not a ribosome
+
+
+Spot check important genes of interest on BLAST!!
+
+Filtering out confirmed ribosomal genes: 
+
+```{r}
+filtered_counts <-normalized_counts %>% filter(!(position %in% c("NODE_1943_length_16146_cov_30.276739_pgaptmp_000182","NODE_2703_length_14133_cov_19.928612_pgaptmp_000886")))
+
+filtered_total <-as.data.frame(colSums(filtered_counts[,c(1:36)])) 
+filtered_total$sample <-rownames(filtered_total)
+
+filtered_counts_bin <- filtered_counts %>% pivot_longer(c(1:36), names_to="sample", values_to="count") %>% group_by(bin, sample) %>% summarize(counts_per_bin=sum(count))
+
+filtered_prop_counts <-left_join(filtered_counts_bin, filtered_total, by="sample") %>% mutate(percent_counts_bin=(counts_per_bin/colSums(filtered_counts[,c(1:36)]))*100)
+
+filtered_prop_counts <-left_join(filtered_prop_counts, sbsw_bins[,c(1:8)], by="bin")
+
+filtered_prop_counts <- filtered_prop_counts %>% mutate(plot=if_else(percent_counts_bin>=0.5, bin, "Other"))
+
+#reorder by domain
+filtered_prop_counts$plot_order <-filtered_prop_counts$class
+filtered_prop_counts <-filtered_prop_counts %>% mutate(plot_order=if_else(plot=="Other","Other", class))
+filtered_prop_counts$plot_order <-as.factor(filtered_prop_counts$plot_order)
+levels(filtered_prop_counts$plot_order)
+
+filtered_prop_counts <-filtered_prop_counts %>% left_join(., metadata_norm_v2, by="sample")
+  
+  ggplot(filtered_prop_counts, aes(x=sample, y=percent_counts_bin, fill=plot)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=wes_palette_27) +
+  plot_theme 
+
+    
+```
+
+
+#Relative expression patterns for genes of interest (Figure 5)
+
+#aconitate hydratase
+```{r}
+aco <-diffex_tax[str_detect(diffex_tax$product, "aconitate hydratase"),] 
+length(unique(aco$bin)) #n=4, bins=3
+
+aco_plot <-normalized_counts %>% filter(position %in% aco$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(aco[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., aco[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(aco_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+#sod
+
+```{r}
+diffex_nofilter <-master_tax %>% filter(padj <=0.05)
+
+sod <-diffex_tax %>% filter(., product== "superoxide dismutase") #n=2
+
+sodcounts <-normalized_counts %>% filter(position %in% sod$position) %>% pivot_longer(c(1:36), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample")
+
+sodcounts <- sodcounts %>% left_join(sod[,c(2,4)], by="position") %>% mutate(relative=value/baseMean)
+sodrelsummary <- sodcounts %>% group_by(time24, position) %>% summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% left_join(., sod[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(sodrelsummary, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#Fe-S cluster assembly
+```{r}
+suf <- diffex_tax[str_detect(diffex_tax$product, "Suf"),] 
+
+suf_plot <-normalized_counts %>% filter(position %in% suf$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(suf[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., suf[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(suf_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#isocitrate dehydrogenase
+
+```{r}
+iso <-diffex_tax[str_detect(diffex_tax$product, "isocitrate dehydrogenase"),]
+length(unique(iso$bin)) #4 genes, 4 bins
+
+iso_plot <-normalized_counts %>% filter(position %in% iso$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(iso[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., iso[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(iso_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#acetolactate synthase
+
+```{r}
+aceto <-diffex_tax[str_detect(diffex_tax$product, "acetolactate synthase"),]
+length(unique(aceto$bin)) #10 genes, 8 bins
+
+aceto_plot <-normalized_counts %>% filter(position %in% aceto$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(aceto[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., aceto[,c(4:6, 9,12,13)], by="position")
+
+ggplot(aceto_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#2-isopropylmalate synthase
+```{r}
+
+malate <-diffex_tax %>% filter(product=="2-isopropylmalate synthase")
+
+malate_plot <-normalized_counts %>% filter(position %in% malate$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(malate[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., malate[,c(4:6, 9,12,13)], by="position")
+
+ggplot(malate_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#glutamate synthase
+
+```{r}
+#glutamate synthase 
+glutamate <- diffex_tax %>% filter(., product=="glutamate synthase large subunit")
+length(unique(glutamate$bin)) #6 genes, 6 bins
+
+gluta_plot <-normalized_counts %>% filter(position %in% glutamate$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(glutamate[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., glutamate[,c(4:6, 9,12,13)], by="position")
+
+ggplot(gluta_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#phosphate uptake regulator PhoU
+
+```{r}
+phosreg <- diffex_tax %>% filter(product=="phosphate uptake regulator PhoU" | product== "phosphate signaling complex protein PhoU" )
+
+#2 bins, 3 genes
+
+phosreg_plot <-normalized_counts %>% filter(position %in% phosreg$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(phosreg[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., phosreg[,c(4:6, 9,12,13)], by="position")
+
+ggplot(phosreg_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+```
+
+#rhodopsins
+With LFC filter, downregulated rhodopsin genes are no longer significant
+```{r}
+rhodopsin <-diffex_tax %>% filter(product=="bacteriorhodopsin") 
+length(unique(rhodopsin$bin)) #n=9, MAGs=8
+
+#creating a line plot showing the relative expression of these genes to their base mean value
+#this cannot be done for batch-corrected count data since it is log transformed
+
+rhodopsin <- rhodopsin %>% mutate(regulation=if_else(log2FoldChange>0, "up", "down"))
+rhodopsin_counts <-normalized_counts %>% filter(position %in% rhodopsin$position) %>% pivot_longer(c(1:36), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) 
+
+#relative expression (divide by basemean)
+rhodopsin_relative <-rhodopsin_counts %>% left_join(rhodopsin[,c(2,4)], by="position") %>% mutate(relative_expression=value/baseMean)
+rhodrelsum <-rhodopsin_relative %>% group_by(time24, position) %>% summarize(relative_expression_mean=mean(relative_expression), sd=sd(relative_expression)) %>% left_join(., rhodopsin[,c(4:7,12,15)], by="position")
+
+
+#line plot with error bars
+ggplot(rhodrelsum, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
+  geom_line() +
+  geom_point() +
+  #scale_linetype_manual(values=c("dotdash","solid")) +
+  plot_theme
+
+```
+
+#glycerol kinase
+
+```{r}
+glycerol <- diffex_tax[str_detect(diffex_tax$product, "glycerol kinase"),] 
+length(unique(glycerol$bin)) #n=17, MAGs=17
+
+glycerol$gene <-"glycerol kinase"
+
+glycerol_plot <-normalized_counts %>% filter(position %in% glycerol$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(glycerol[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., glycerol[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(glycerol_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+#glycerol dehydrogenases
+```{r}
+dehydro <-diffex_tax[str_detect(diffex_tax$product, "glycerol-3-phosphate dehydrogenase"), ]
+#make gene names wrappable
+dehydro <- dehydro %>% mutate(gene=case_when(
+  startsWith(product, "anaerobic") ~ "anaerobic glycerol-3-phosphate dehydrogenase",
+  startsWith(product, "glycerol-3-phosphate") ~ "glycerol-3-phosphate dehydrogenase"))
+
+length(unique(dehydro$bin))
+#9 mags, 12 genes
+
+dehydro_plot <-normalized_counts %>% filter(position %in% dehydro$position) %>% 
+  pivot_longer(c(1:36), names_to="sample")%>% 
+  left_join(dehydro[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., dehydro[,c(4:7, 9,12,13)], by="position")
+
+ggplot(dehydro_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line(aes(linetype=gene)) +
+  geom_point() +
+  plot_theme
+```
+#Phosphate uptake
+Pst only not PhoU
+```{r}
+phosphate <- diffex_tax %>% filter(product== "phosphate ABC transporter permease PstA"| product=="phosphate ABC transporter ATP-binding protein PstB" | product=="phosphate ABC transporter permease subunit PstC" | product=="PstS family phosphate ABC transporter substrate-binding protein")
+
+length(unique(phosphate$bin)) #12 bins, 18 genes
+
+phosphate_plot <-normalized_counts %>% filter(position %in% phosphate$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(phosphate[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., phosphate[,c(4:6, 9,12,13)], by="position")
+
+ggplot(phosphate_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+#oxygenic photosynthesis
+Need to figure this out-LFC is low but photosystem I displays large difference in count
+Plot count data?
+```{r}
+photosystem2 <- diffex_tax[str_detect(diffex_tax$product, "photosystem II"),]
+
+photosystem2_plot <-normalized_counts %>% filter(position %in% photosystem2$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(photosystem2[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., photosystem2[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(photosystem2_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+photosystemI <-diffex_nofilter[str_detect(diffex_nofilter$product, "photosystem I core protein"),]
+
+photosystemI <-diffex_tax[str_detect(diffex_tax$product, "photosystem I core protein"),]
+photosystemI_plot <-normalized_counts %>% filter(position %in% photosystemI$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(photosystemI[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., photosystemI[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(photosystemI_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
+
+
+#pufMHL
+```{r}
+photo <- diffex_tax[str_detect(diffex_tax$product, "photosynthetic reaction center"),] #n=11, note that these have very low base mean expression 
+length(unique(photo$bin)) #5 bins, 11 genes
+
+photo_plot <-normalized_counts %>% filter(position %in% photo$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(photo[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., photo[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(photo_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+
+```
+
+#bacteriochlorophyll
+Note that this has a very low base mean of expression
+ATP-dependent prochlorophyllide reductase is non-light-dependent, oxygen-sensitive, found in Halothece
+chlorophyllide a reductase is key enzyme for producing bacteriochlorophyll
+```{r}
+chlorophyll <- diffex_tax[str_detect(diffex_tax$product, "chloro"),] 
+length(unique(chlorophyll$bin)) #13 genes, 6 bins
+
+bchl_plot <-normalized_counts %>% filter(position %in% chlorophyll$position) %>%
+pivot_longer(c(1:36), names_to="sample") %>% 
+  left_join(chlorophyll[,c(2,4)], by="position") %>% 
+  mutate(relative=value/baseMean) %>% 
+  left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
+  group_by(time24, position) %>% 
+  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., chlorophyll[,c(4:6, 9,12,13)], by="position")
+
+#line plot with error bars
+ggplot(bchl_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
+  geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
+  geom_line() +
+  geom_point() +
+  plot_theme
+
+```
 
 
