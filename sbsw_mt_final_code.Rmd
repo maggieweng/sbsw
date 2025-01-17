@@ -319,6 +319,7 @@ metadata_norm_v2 <-read_csv("metadata_norm_v2.csv") #metadata
 master_tax <-read_csv("../current_data/master_genes_taxonomy_gtdbtk_blocked.csv") %>% select(-"...1")
 normalized_counts <-read_csv("../current_data/normalized_mt_tally_v2_genes.csv") #uncorrected, un-log-transformed counts that have still been normalized by deseq2, used for Fig 5 (expression relative to mean) as log-transformed counts cannot be related to mean count
 corrected_counts <-read_csv("../current_data/limma_corrected_counts.csv") #counts with additional log transformation and batch correction from limma used in Fig 3,4
+diffex_tax <-master_tax %>% filter(padj <0.05)
 ```
 
 #MA plot of fold change vs base mean for all genes in the dataset (Figure 4a)
@@ -348,14 +349,6 @@ ggplot(master_tax, aes(x=log2FoldChange, y=-log10(padj), col=diffex)) + geom_poi
 
 
 
-```
-
-#Instituting LFC filter as requested by reviewers
-
-Fold changes are measured by log2 fold change. Log2(1.5)=0.58, meaning that a value of 0.58 corresponds to a 1.5x fold change in expression. We will therefore use 0.58 as a cutoff for large biological change in expression. 
-
-```{r}
-diffex_tax <-master_tax %>% filter(padj <0.05 & abs(log2FoldChange) >=0.58)
 ```
 
 
@@ -437,11 +430,19 @@ filtered_prop_counts <-filtered_prop_counts %>% left_join(., metadata_norm_v2, b
 
 
 #Relative expression patterns for genes of interest (Figure 5)
+Instituting LFC filter as requested by reviewers:
+
+Fold changes are measured by log2 fold change. Log2(1.5)=0.58, meaning that a value of 0.58 corresponds to a 1.5x fold change in expression. We will therefore use 0.58 as a cutoff for large biological change in expression. These genes will be highlighted in red in the figure. 
+
+```{r}
+diffex_tax <-diffex_tax %>% mutate(FoldChangeSig=if_else(abs(log2FoldChange)>=0.58, "high", "low"))
+```
+
 
 #aconitate hydratase
 ```{r}
 aco <-diffex_tax[str_detect(diffex_tax$product, "aconitate hydratase"),] 
-length(unique(aco$bin)) #n=4, bins=3
+length(unique(aco$bin)) 
 
 aco_plot <-normalized_counts %>% filter(position %in% aco$position) %>%
 pivot_longer(c(1:36), names_to="sample") %>% 
@@ -449,34 +450,53 @@ pivot_longer(c(1:36), names_to="sample") %>%
   mutate(relative=value/baseMean) %>% 
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
-  summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., aco[,c(4:6, 9,12,13)], by="position")
+ summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
+  left_join(., aco[,c(4:6, 9,12,13,15)], by="position")
 
+  
 #line plot with error bars
 ggplot(aco_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
+
+#high fold change: n=4, bins=3
 ```
 #sod
 
 ```{r}
-diffex_nofilter <-master_tax %>% filter(padj <=0.05)
 
 sod <-diffex_tax %>% filter(., product== "superoxide dismutase") #n=2
 
 sodcounts <-normalized_counts %>% filter(position %in% sod$position) %>% pivot_longer(c(1:36), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample")
 
 sodcounts <- sodcounts %>% left_join(sod[,c(2,4)], by="position") %>% mutate(relative=value/baseMean)
-sodrelsummary <- sodcounts %>% group_by(time24, position) %>% summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% left_join(., sod[,c(4:6, 9,12,13)], by="position")
+sodrelsummary <- sodcounts %>% group_by(time24, position) %>% summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% left_join(., sod[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(sodrelsummary, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
+
+
+#plot of corrected counts
+sodcorrected <-corrected_counts %>% filter(position %in% sod$position) %>% pivot_longer(c(2:37), names_to="sample") %>% left_join(., metadata_norm_v2, by="sample") %>% group_by(time24, position) %>% summarise(expression_mean=mean(value), sd=sd(value)) %>% left_join(., sod, by="position")
+
+#line plot with error bars
+ggplot(sodcorrected, aes(x=time24, y=expression_mean, group=position, color=FoldChangeSig)) +
+  geom_errorbar(aes(ymin=expression_mean-sd, ymax=expression_mean+sd), width=0.01, position=position_dodge(0.1)) +
+  geom_line(aes(color=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  plot_theme +
+  scale_color_manual(values=c("red", "#3f3c3c"))
+
 ```
 
 #Fe-S cluster assembly
@@ -490,13 +510,15 @@ pivot_longer(c(1:36), names_to="sample") %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., suf[,c(4:6, 9,12,13)], by="position")
+  left_join(., suf[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(suf_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+ geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 ```
@@ -505,7 +527,7 @@ ggplot(suf_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
 
 ```{r}
 iso <-diffex_tax[str_detect(diffex_tax$product, "isocitrate dehydrogenase"),]
-length(unique(iso$bin)) #4 genes, 4 bins
+length(unique(iso$bin)) #4 genes, 4 bins above 0.58
 
 iso_plot <-normalized_counts %>% filter(position %in% iso$position) %>% 
   pivot_longer(c(1:36), names_to="sample")%>% 
@@ -514,22 +536,25 @@ iso_plot <-normalized_counts %>% filter(position %in% iso$position) %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., iso[,c(4:6, 9,12,13)], by="position")
+  left_join(., iso[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(iso_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
-
 ```
 
 #acetolactate synthase
 
 ```{r}
+
 aceto <-diffex_tax[str_detect(diffex_tax$product, "acetolactate synthase"),]
-length(unique(aceto$bin)) #10 genes, 8 bins
+acetosig <-aceto %>% filter(FoldChangeSig=="high") 
+length(unique(acetosig$bin))
 
 aceto_plot <-normalized_counts %>% filter(position %in% aceto$position) %>% 
   pivot_longer(c(1:36), names_to="sample")%>% 
@@ -538,12 +563,14 @@ aceto_plot <-normalized_counts %>% filter(position %in% aceto$position) %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., aceto[,c(4:6, 9,12,13)], by="position")
+  left_join(., aceto[,c(4:6, 9,12,13,15)], by="position")
 
 ggplot(aceto_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 ```
 
@@ -559,13 +586,16 @@ malate_plot <-normalized_counts %>% filter(position %in% malate$position) %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., malate[,c(4:6, 9,12,13)], by="position")
+  left_join(., malate[,c(4:6, 9,12,13,15)], by="position")
 
 ggplot(malate_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
+  
 ```
 
 #glutamate synthase
@@ -582,12 +612,14 @@ gluta_plot <-normalized_counts %>% filter(position %in% glutamate$position) %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., glutamate[,c(4:6, 9,12,13)], by="position")
+  left_join(., glutamate[,c(4:6, 9,12,13,15)], by="position")
 
 ggplot(gluta_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 ```
@@ -610,8 +642,10 @@ phosreg_plot <-normalized_counts %>% filter(position %in% phosreg$position) %>%
 
 ggplot(phosreg_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 ```
 
@@ -619,7 +653,8 @@ ggplot(phosreg_plot, aes(x=time24, y=relative_expression_mean, group=position)) 
 With LFC filter, downregulated rhodopsin genes are no longer significant
 ```{r}
 rhodopsin <-diffex_tax %>% filter(product=="bacteriorhodopsin") 
-length(unique(rhodopsin$bin)) #n=9, MAGs=8
+rhodopsin_sig <-rhodopsin %>% filter(FoldChangeSig=="high")
+length(unique(rhodopsin_sig$bin)) #n=9, MAGs=8
 
 #creating a line plot showing the relative expression of these genes to their base mean value
 #this cannot be done for batch-corrected count data since it is log transformed
@@ -629,16 +664,19 @@ rhodopsin_counts <-normalized_counts %>% filter(position %in% rhodopsin$position
 
 #relative expression (divide by basemean)
 rhodopsin_relative <-rhodopsin_counts %>% left_join(rhodopsin[,c(2,4)], by="position") %>% mutate(relative_expression=value/baseMean)
-rhodrelsum <-rhodopsin_relative %>% group_by(time24, position) %>% summarize(relative_expression_mean=mean(relative_expression), sd=sd(relative_expression)) %>% left_join(., rhodopsin[,c(4:7,12,15)], by="position")
+rhodrelsum <-rhodopsin_relative %>% group_by(time24, position) %>% summarize(relative_expression_mean=mean(relative_expression), sd=sd(relative_expression)) %>% left_join(., rhodopsin[,c(4:7,12,15,16)], by="position")
 
 
 #line plot with error bars
 ggplot(rhodrelsum, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
-  geom_line() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig, linetype=regulation)) +
   geom_point() +
-  #scale_linetype_manual(values=c("dotdash","solid")) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
+  scale_linetype_manual(values=c("dotdash","solid")) +
   plot_theme
+
 
 ```
 
@@ -646,7 +684,8 @@ ggplot(rhodrelsum, aes(x=time24, y=relative_expression_mean, group=position)) +
 
 ```{r}
 glycerol <- diffex_tax[str_detect(diffex_tax$product, "glycerol kinase"),] 
-length(unique(glycerol$bin)) #n=17, MAGs=17
+glycerolsig <-glycerol %>% filter(FoldChangeSig=="high")
+length(unique(glycerolsig$bin)) #n=17, MAGs=17
 
 glycerol$gene <-"glycerol kinase"
 
@@ -657,13 +696,15 @@ glycerol_plot <-normalized_counts %>% filter(position %in% glycerol$position) %>
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., glycerol[,c(4:6, 9,12,13)], by="position")
+  left_join(., glycerol[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(glycerol_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 ```
@@ -676,7 +717,9 @@ dehydro <- dehydro %>% mutate(gene=case_when(
   startsWith(product, "anaerobic") ~ "anaerobic glycerol-3-phosphate dehydrogenase",
   startsWith(product, "glycerol-3-phosphate") ~ "glycerol-3-phosphate dehydrogenase"))
 
-length(unique(dehydro$bin))
+dehydrosig <-dehydro %>% filter(FoldChangeSig=="high")
+
+length(unique(dehydrosig$bin))
 #9 mags, 12 genes
 
 dehydro_plot <-normalized_counts %>% filter(position %in% dehydro$position) %>% 
@@ -686,12 +729,14 @@ dehydro_plot <-normalized_counts %>% filter(position %in% dehydro$position) %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., dehydro[,c(4:7, 9,12,13)], by="position")
+  left_join(., dehydro[,c(4:7, 9,12,13,15)], by="position")
 
 ggplot(dehydro_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line(aes(linetype=gene)) +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, linetype=gene)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_linetype_manual(values=c("dotdash","solid")) +
   plot_theme
 ```
 #Phosphate uptake
@@ -699,7 +744,8 @@ Pst only not PhoU
 ```{r}
 phosphate <- diffex_tax %>% filter(product== "phosphate ABC transporter permease PstA"| product=="phosphate ABC transporter ATP-binding protein PstB" | product=="phosphate ABC transporter permease subunit PstC" | product=="PstS family phosphate ABC transporter substrate-binding protein")
 
-length(unique(phosphate$bin)) #12 bins, 18 genes
+phosphatesig <-phosphate %>% filter(FoldChangeSig=="high")
+length(unique(phosphatesig$bin)) #12 bins, 18 genes
 
 phosphate_plot <-normalized_counts %>% filter(position %in% phosphate$position) %>%
 pivot_longer(c(1:36), names_to="sample") %>% 
@@ -708,12 +754,14 @@ pivot_longer(c(1:36), names_to="sample") %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., phosphate[,c(4:6, 9,12,13)], by="position")
+  left_join(., phosphate[,c(4:6, 9,12,13,15)], by="position")
 
 ggplot(phosphate_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 ```
@@ -730,13 +778,15 @@ pivot_longer(c(1:36), names_to="sample") %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., photosystem2[,c(4:6, 9,12,13)], by="position")
+  left_join(., photosystem2[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(photosystem2_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 photosystemI <-diffex_nofilter[str_detect(diffex_nofilter$product, "photosystem I core protein"),]
@@ -749,13 +799,15 @@ pivot_longer(c(1:36), names_to="sample") %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., photosystemI[,c(4:6, 9,12,13)], by="position")
+  left_join(., photosystemI[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(photosystemI_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 ```
@@ -773,13 +825,15 @@ pivot_longer(c(1:36), names_to="sample") %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., photo[,c(4:6, 9,12,13)], by="position")
+  left_join(., photo[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(photo_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 
@@ -800,13 +854,15 @@ pivot_longer(c(1:36), names_to="sample") %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., chlorophyll[,c(4:6, 9,12,13)], by="position")
+  left_join(., chlorophyll[,c(4:6, 9,12,13,15)], by="position")
 
 #line plot with error bars
 ggplot(bchl_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
-  geom_line() +
-  geom_point() +
+  geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
 ```
