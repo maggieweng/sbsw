@@ -789,7 +789,7 @@ ggplot(photosystem2_plot, aes(x=time24, y=relative_expression_mean, group=positi
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
-photosystemI <-diffex_nofilter[str_detect(diffex_nofilter$product, "photosystem I core protein"),]
+#photosystem I
 
 photosystemI <-diffex_tax[str_detect(diffex_tax$product, "photosystem I core protein"),]
 photosystemI_plot <-normalized_counts %>% filter(position %in% photosystemI$position) %>%
