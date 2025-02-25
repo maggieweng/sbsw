@@ -432,10 +432,14 @@ filtered_prop_counts <-filtered_prop_counts %>% left_join(., metadata_norm_v2, b
 #Relative expression patterns for genes of interest (Figure 5)
 Instituting LFC filter as requested by reviewers:
 
-Fold changes are measured by log2 fold change. Log2(1.5)=0.58, meaning that a value of 0.58 corresponds to a 1.5x fold change in expression. We will therefore use 0.58 as a cutoff for large biological change in expression. These genes will be highlighted in red in the figure. 
+Fold changes are measured by log2 fold change. 
+
+Log2(1.5)=0.58, meaning that a value of 0.58 corresponds to a 1.5x fold change in expression.
+
+The editors have requested a fold change cutoff of 2x, corresponding to a log2 fold change of 1. 
 
 ```{r}
-diffex_tax <-diffex_tax %>% mutate(FoldChangeSig=if_else(abs(log2FoldChange)>=0.58, "high", "low"))
+diffex_tax <-diffex_tax %>% mutate(FoldChangeSig=if_else(abs(log2FoldChange)>=1, "high", "low"))
 ```
 
 
@@ -459,11 +463,11 @@ ggplot(aco_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("red", "black")) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
-#high fold change: n=4, bins=3
+#high fold change: n=3, bins=2
 ```
 #sod
 
@@ -481,7 +485,7 @@ ggplot(sodrelsummary, aes(x=time24, y=relative_expression_mean, group=position))
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("#3f3c3c")) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
@@ -496,6 +500,8 @@ ggplot(sodcorrected, aes(x=time24, y=expression_mean, group=position, color=Fold
   geom_point(aes(color=FoldChangeSig)) +
   plot_theme +
   scale_color_manual(values=c("red", "#3f3c3c"))
+
+#none of these fold changes are >=2
 
 ```
 
@@ -521,6 +527,7 @@ ggplot(suf_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
+#no fold changes >=2
 ```
 
 #isocitrate dehydrogenase
@@ -543,9 +550,11 @@ ggplot(iso_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("red", "black")) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
+
+#n=1
 ```
 
 #acetolactate synthase
@@ -592,10 +601,11 @@ ggplot(malate_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("red", "black")) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
   
+#n=1
 ```
 
 #glutamate synthase
@@ -638,13 +648,13 @@ phosreg_plot <-normalized_counts %>% filter(position %in% phosreg$position) %>%
   left_join(., metadata_norm_v2[,c(2,4)], by="sample") %>% 
   group_by(time24, position) %>% 
   summarise(relative_expression_mean=mean(relative), sd=sd(relative)) %>% 
-  left_join(., phosreg[,c(4:6, 9,12,13)], by="position")
+  left_join(., phosreg[,c(4:6, 9,12,13,15)], by="position")
 
 ggplot(phosreg_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("red", "black")) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
 ```
@@ -671,8 +681,8 @@ rhodrelsum <-rhodopsin_relative %>% group_by(time24, position) %>% summarize(rel
 ggplot(rhodrelsum, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="grey") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig, linetype=regulation)) +
-  geom_point() +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  geom_point(aes(color=FoldChangeSig)) +
+  scale_color_manual(values=c("red", "black")) +
   scale_size_manual(values=c(1,0.5)) +
   scale_linetype_manual(values=c("dotdash","solid")) +
   plot_theme
@@ -735,7 +745,7 @@ ggplot(dehydro_plot, aes(x=time24, y=relative_expression_mean, group=position)) 
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
   geom_line(aes(color=FoldChangeSig, linetype=gene)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("red", "black")) +
   scale_linetype_manual(values=c("dotdash","solid")) +
   plot_theme
 ```
@@ -760,7 +770,7 @@ ggplot(phosphate_plot, aes(x=time24, y=relative_expression_mean, group=position)
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("red", "black")) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
@@ -861,7 +871,7 @@ ggplot(bchl_plot, aes(x=time24, y=relative_expression_mean, group=position)) +
   geom_ribbon(aes(ymin=relative_expression_mean-sd, ymax=relative_expression_mean+sd), fill="gray") +
   geom_line(aes(color=FoldChangeSig, size=FoldChangeSig)) +
   geom_point(aes(color=FoldChangeSig)) +
-  scale_color_manual(values=c("red", "#3f3c3c")) +
+  scale_color_manual(values=c("red", "black")) +
   scale_size_manual(values=c(1,0.5)) +
   plot_theme
 
